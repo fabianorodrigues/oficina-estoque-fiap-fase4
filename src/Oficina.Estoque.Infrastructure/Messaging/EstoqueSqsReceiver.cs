@@ -17,13 +17,13 @@ internal sealed class EstoqueSqsReceiver(
 
     protected override async Task ExecuteOnce(CancellationToken ct)
     {
-        _queueUrl ??= await QueueUrlResolver.Resolve(sqs, options.Value, options.Value.CommandsQueueName, ct);
+        _queueUrl ??= await QueueUrlResolver.Resolve(sqs, options.Value, options.Value.CommandsQueueName, options.Value.CommandsQueueUrl, ct);
         var response = await sqs.ReceiveMessageAsync(new ReceiveMessageRequest
         {
             QueueUrl = _queueUrl,
-            MaxNumberOfMessages = 5,
-            WaitTimeSeconds = 5,
-            VisibilityTimeout = 20
+            MaxNumberOfMessages = options.Value.MaxMessages,
+            WaitTimeSeconds = options.Value.WaitTimeSeconds,
+            VisibilityTimeout = options.Value.VisibilityTimeoutSeconds
         }, ct);
 
         foreach (var message in response.Messages ?? [])

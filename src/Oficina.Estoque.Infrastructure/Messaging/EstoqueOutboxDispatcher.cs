@@ -17,7 +17,7 @@ internal sealed class EstoqueOutboxDispatcher(
 
     protected override async Task ExecuteOnce(CancellationToken ct)
     {
-        _queueUrl ??= await QueueUrlResolver.Resolve(sqs, options.Value, options.Value.EventsQueueName, ct);
+        _queueUrl ??= await QueueUrlResolver.Resolve(sqs, options.Value, options.Value.EventsQueueName, options.Value.EventsQueueUrl, ct);
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<EstoqueDbContext>();
         var now = DateTimeOffset.UtcNow;

@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oficina-estoque-config
+  namespace: oficina
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_URLS: "http://+:8080"
+  AWS__REGION: "{{AWS_REGION}}"
+  Messaging__Sqs__Enabled: "true"
+  Messaging__Sqs__Region: "{{AWS_REGION}}"
+  Messaging__Sqs__CommandsQueueName: "oficina-estoque-comandos.fifo"
+  Messaging__Sqs__CommandsDlqQueueName: "oficina-estoque-comandos-dlq.fifo"
+  Messaging__Sqs__EventsQueueName: "oficina-ordens-eventos.fifo"
+  Messaging__Sqs__CommandsQueueUrl: "{{COMMANDS_QUEUE_URL}}"
+  Messaging__Sqs__CommandsDlqQueueUrl: "{{COMMANDS_DLQ_URL}}"
+  Messaging__Sqs__EventsQueueUrl: "{{EVENTS_QUEUE_URL}}"
+  Messaging__Sqs__EventsDlqQueueUrl: "{{EVENTS_DLQ_URL}}"
+  Messaging__Sqs__ConsumerConcurrency: "1"
+  Messaging__Sqs__MaxMessages: "1"
+  Messaging__Sqs__WaitTimeSeconds: "20"
+  Messaging__Sqs__VisibilityTimeoutSeconds: "60"
+  OpenTelemetry__Enabled: "true"
+  OpenTelemetry__OtlpEndpoint: "{{OTEL_EXPORTER_OTLP_ENDPOINT}}"
+  OTEL_SERVICE_NAME: "oficina-estoque"

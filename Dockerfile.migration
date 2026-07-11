@@ -1,0 +1,26 @@
+ARG DOTNET_VERSION=10.0
+
+FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
+WORKDIR /src
+
+COPY global.json ./
+COPY src/Oficina.Estoque.Domain/Oficina.Estoque.Domain.csproj src/Oficina.Estoque.Domain/
+COPY src/Oficina.Estoque.Application/Oficina.Estoque.Application.csproj src/Oficina.Estoque.Application/
+COPY src/Oficina.Estoque.Infrastructure/Oficina.Estoque.Infrastructure.csproj src/Oficina.Estoque.Infrastructure/
+COPY src/Oficina.Estoque.Api/Oficina.Estoque.Api.csproj src/Oficina.Estoque.Api/
+RUN dotnet restore src/Oficina.Estoque.Api/Oficina.Estoque.Api.csproj
+RUN dotnet tool install --tool-path /tools dotnet-ef
+
+COPY . .
+RUN /tools/dotnet-ef migrations bundle \
+    --project src/Oficina.Estoque.Infrastructure/Oficina.Estoque.Infrastructure.csproj \
+    --startup-project src/Oficina.Estoque.Api/Oficina.Estoque.Api.csproj \
+    --configuration Release \
+    --output /app/efbundle
+
+FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}
+WORKDIR /app
+COPY --from=build /app/efbundle /app/efbundle
+RUN chmod +x /app/efbundle
+USER $APP_UID
+ENTRYPOINT ["/app/efbundle"]

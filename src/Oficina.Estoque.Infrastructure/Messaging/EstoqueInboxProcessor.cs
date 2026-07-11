@@ -124,7 +124,7 @@ internal sealed class EstoqueInboxProcessor(
 
     private async Task PublishExplicitDlq(InboxMessage inbox, CancellationToken ct)
     {
-        var dlqUrl = await QueueUrlResolver.Resolve(sqs, options.Value, options.Value.CommandsDlqQueueName, ct);
+        var dlqUrl = await QueueUrlResolver.Resolve(sqs, options.Value, options.Value.CommandsDlqQueueName, options.Value.CommandsDlqQueueUrl, ct);
         await sqs.SendMessageAsync(new SendMessageRequest
         {
             QueueUrl = dlqUrl,

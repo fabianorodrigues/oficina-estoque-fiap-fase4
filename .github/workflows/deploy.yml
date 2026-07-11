@@ -1,0 +1,164 @@
+name: Estoque Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Digite DEPLOY para confirmar
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: estoque-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate branch and confirmation
+        shell: bash
+        run: |
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${{ inputs.confirmation }}" = "DEPLOY"
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Validate official config
+        shell: pwsh
+        run: ./scripts/validate-official-config.ps1
+
+      - name: Validate AWS region
+        shell: bash
+        run: test -n "${{ vars.AWS_REGION }}"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Resolve AWS metadata
+        id: awsmeta
+        shell: bash
+        run: |
+          aws sts get-caller-identity >/dev/null
+          CLUSTER=$(aws ssm get-parameter --name /oficina/infra/cluster/name --query Parameter.Value --output text)
+          ECR=$(aws ssm get-parameter --name /oficina/infra/ecr/estoque --query Parameter.Value --output text)
+          COMMANDS_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/estoque-comandos/url --query Parameter.Value --output text)
+          COMMANDS_DLQ_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/estoque-comandos-dlq/url --query Parameter.Value --output text)
+          EVENTS_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/ordens-eventos/url --query Parameter.Value --output text)
+          EVENTS_DLQ_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/ordens-eventos-dlq/url --query Parameter.Value --output text)
+          echo "cluster=${CLUSTER}" >> "$GITHUB_OUTPUT"
+          echo "ecr=${ECR}" >> "$GITHUB_OUTPUT"
+          echo "commands_url=${COMMANDS_URL}" >> "$GITHUB_OUTPUT"
+          echo "commands_dlq_url=${COMMANDS_DLQ_URL}" >> "$GITHUB_OUTPUT"
+          echo "events_url=${EVENTS_URL}" >> "$GITHUB_OUTPUT"
+          echo "events_dlq_url=${EVENTS_DLQ_URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate AWS resources metadata
+        shell: bash
+        run: |
+          aws sqs get-queue-attributes --queue-url "${{ steps.awsmeta.outputs.commands_url }}" --attribute-names FifoQueue RedrivePolicy VisibilityTimeout
+          aws sqs get-queue-attributes --queue-url "${{ steps.awsmeta.outputs.commands_dlq_url }}" --attribute-names FifoQueue
+          aws sqs get-queue-attributes --queue-url "${{ steps.awsmeta.outputs.events_url }}" --attribute-names FifoQueue RedrivePolicy
+          aws sqs get-queue-attributes --queue-url "${{ steps.awsmeta.outputs.events_dlq_url }}" --attribute-names FifoQueue
+          aws secretsmanager describe-secret --secret-id /oficina/estoque/runtime-db >/dev/null
+          aws secretsmanager describe-secret --secret-id /oficina/estoque/migration-db >/dev/null
+          aws secretsmanager list-secret-version-ids --secret-id /oficina/estoque/runtime-db --include-deprecated >/dev/null
+          aws secretsmanager list-secret-version-ids --secret-id /oficina/estoque/migration-db --include-deprecated >/dev/null
+
+      - name: Restore build test
+        run: |
+          dotnet restore Oficina.Estoque.sln
+          dotnet build Oficina.Estoque.sln -c Release --no-restore
+          dotnet test Oficina.Estoque.sln -c Release --no-build
+
+      - name: Build images
+        run: |
+          docker build -f Dockerfile -t "${{ steps.awsmeta.outputs.ecr }}:${{ github.sha }}" .
+          docker build -f Dockerfile.migration -t "${{ steps.awsmeta.outputs.ecr }}:${{ github.sha }}-migration" .
+
+      - name: Scan images
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ steps.awsmeta.outputs.ecr }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+
+      - name: Login and push images
+        shell: bash
+        run: |
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$(dirname "${{ steps.awsmeta.outputs.ecr }}")"
+          docker push "${{ steps.awsmeta.outputs.ecr }}:${{ github.sha }}"
+          docker push "${{ steps.awsmeta.outputs.ecr }}:${{ github.sha }}-migration"
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name "${{ steps.awsmeta.outputs.cluster }}" --region "${{ vars.AWS_REGION }}"
+
+      - name: Render manifests
+        shell: pwsh
+        run: >
+          ./scripts/render-k8s-manifests.ps1
+          -OutputDirectory deploy/rendered
+          -RuntimeImage "${{ steps.awsmeta.outputs.ecr }}:${{ github.sha }}"
+          -MigrationImage "${{ steps.awsmeta.outputs.ecr }}:${{ github.sha }}-migration"
+          -AwsRegion "${{ vars.AWS_REGION }}"
+          -CommandsQueueUrl "${{ steps.awsmeta.outputs.commands_url }}"
+          -CommandsDlqUrl "${{ steps.awsmeta.outputs.commands_dlq_url }}"
+          -EventsQueueUrl "${{ steps.awsmeta.outputs.events_url }}"
+          -EventsDlqUrl "${{ steps.awsmeta.outputs.events_dlq_url }}"
+          -WorkloadIdentityMode PodIdentity
+          -MigrationJobName "oficina-estoque-migration-${{ github.run_id }}-${{ github.run_attempt }}"
+
+      - name: Apply migration and deployment
+        shell: bash
+        run: |
+          kubectl get namespace oficina
+          kubectl get nodes
+          kubectl apply -f deploy/rendered/service-account-runtime.yaml
+          kubectl apply -f deploy/rendered/service-account-migration.yaml
+          kubectl apply -f deploy/rendered/secret-provider-class-runtime.yaml
+          kubectl apply -f deploy/rendered/secret-provider-class-migration.yaml
+          kubectl apply -f deploy/rendered/configmap.yaml
+          kubectl apply -f deploy/rendered/service.yaml
+          kubectl apply -f deploy/rendered/migration-job.yaml
+          kubectl wait --for=condition=complete "job/oficina-estoque-migration-${{ github.run_id }}-${{ github.run_attempt }}" -n oficina --timeout=900s
+          kubectl logs "job/oficina-estoque-migration-${{ github.run_id }}-${{ github.run_attempt }}" -n oficina
+          kubectl apply -f deploy/rendered/deployment.yaml
+          kubectl rollout status deployment/oficina-estoque -n oficina --timeout=600s
+
+      - name: Smoke and read-only validation
+        shell: bash
+        run: |
+          kubectl port-forward -n oficina service/oficina-estoque 18080:80 &
+          PF_PID=$!
+          sleep 5
+          pwsh ./scripts/smoke-test.ps1 -BaseUrl http://127.0.0.1:18080
+          pwsh ./scripts/validate-estoque-deployment.ps1 -Namespace oficina -ExpectedImageTag "${{ github.sha }}"
+          kill $PF_PID
+
+      - name: Step summary
+        shell: bash
+        run: |
+          {
+            echo "Commit SHA: ${{ github.sha }}"
+            echo "ECR: ${{ steps.awsmeta.outputs.ecr }}"
+            echo "Runtime image tag: ${{ github.sha }}"
+            echo "Migration image tag: ${{ github.sha }}-migration"
+            echo "Cluster: ${{ steps.awsmeta.outputs.cluster }}"
+            echo "Namespace: oficina"
+            echo "Deployment status: rollout complete"
+            echo "Health: checked"
+            echo "Readiness: checked"
+            echo "Queue names: oficina-estoque-comandos.fifo, oficina-ordens-eventos.fifo"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,89 @@
+name: Estoque Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Tag runtime para rollback
+        required: true
+      confirmation:
+        description: Digite ROLLBACK para confirmar
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: estoque-deploy
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate branch, confirmation and tag
+        shell: bash
+        run: |
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${{ inputs.confirmation }}" = "ROLLBACK"
+          [[ "${{ inputs.image_tag }}" =~ ^[A-Za-z0-9._-]+$ ]]
+          [[ "${{ inputs.image_tag }}" != "latest" ]]
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Resolve AWS metadata
+        id: awsmeta
+        shell: bash
+        run: |
+          CLUSTER=$(aws ssm get-parameter --name /oficina/infra/cluster/name --query Parameter.Value --output text)
+          ECR=$(aws ssm get-parameter --name /oficina/infra/ecr/estoque --query Parameter.Value --output text)
+          echo "cluster=${CLUSTER}" >> "$GITHUB_OUTPUT"
+          echo "ecr=${ECR}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate image exists
+        shell: bash
+        run: |
+          REPO_NAME=$(basename "${{ steps.awsmeta.outputs.ecr }}")
+          aws ecr describe-images --repository-name "$REPO_NAME" --image-ids imageTag="${{ inputs.image_tag }}" >/dev/null
+
+      - name: Update image only
+        shell: bash
+        run: |
+          aws eks update-kubeconfig --name "${{ steps.awsmeta.outputs.cluster }}" --region "${{ vars.AWS_REGION }}"
+          kubectl set image deployment/oficina-estoque oficina-estoque="${{ steps.awsmeta.outputs.ecr }}:${{ inputs.image_tag }}" -n oficina
+          kubectl rollout status deployment/oficina-estoque -n oficina --timeout=600s
+          REPLICAS=$(kubectl get deployment oficina-estoque -n oficina -o jsonpath='{.spec.replicas}')
+          STRATEGY=$(kubectl get deployment oficina-estoque -n oficina -o jsonpath='{.spec.strategy.type}')
+          test "$REPLICAS" = "1"
+          test "$STRATEGY" = "Recreate"
+
+      - name: Smoke and read-only validation
+        shell: bash
+        run: |
+          kubectl port-forward -n oficina service/oficina-estoque 18080:80 &
+          PF_PID=$!
+          sleep 5
+          pwsh ./scripts/smoke-test.ps1 -BaseUrl http://127.0.0.1:18080
+          pwsh ./scripts/validate-estoque-deployment.ps1 -Namespace oficina -ExpectedImageTag "${{ inputs.image_tag }}"
+          kill $PF_PID
+
+      - name: Step summary
+        shell: bash
+        run: |
+          {
+            echo "Rollback image tag: ${{ inputs.image_tag }}"
+            echo "Cluster: ${{ steps.awsmeta.outputs.cluster }}"
+            echo "Namespace: oficina"
+            echo "Migration reversa: nao executada"
+            echo "Deployment status: rollout complete"
+            echo "Health: checked"
+            echo "Readiness: checked"
+          } >> "$GITHUB_STEP_SUMMARY"

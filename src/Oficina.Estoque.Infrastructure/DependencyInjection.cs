@@ -12,8 +12,17 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddEstoqueInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        var isProduction = string.Equals(configuration["ASPNETCORE_ENVIRONMENT"], "Production", StringComparison.OrdinalIgnoreCase);
         var connectionString = configuration.GetConnectionString("OficinaEstoqueDb")
-            ?? "Server=(localdb)\\mssqllocaldb;Database=OficinaEstoqueDb;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True";
+            ?? configuration.GetConnectionString("DefaultConnection");
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            if (isProduction)
+                throw new InvalidOperationException("A connection string obrigatoria nao foi configurada.");
+
+            connectionString = "Server=(localdb)\\mssqllocaldb;Database=OficinaEstoqueDb;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True";
+        }
 
         services.AddDbContext<EstoqueDbContext>(options => options
             .UseSqlServer(connectionString)

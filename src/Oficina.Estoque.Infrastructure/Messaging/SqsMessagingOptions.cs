@@ -10,4 +10,12 @@ public sealed class SqsMessagingOptions
     public string CommandsQueueName { get; set; } = "oficina-estoque-comandos.fifo";
     public string CommandsDlqQueueName { get; set; } = "oficina-estoque-comandos-dlq.fifo";
     public string EventsQueueName { get; set; } = "oficina-ordens-eventos.fifo";
+    public string CommandsQueueUrl { get; set; } = string.Empty;
+    public string CommandsDlqQueueUrl { get; set; } = string.Empty;
+    public string EventsQueueUrl { get; set; } = string.Empty;
+    public string EventsDlqQueueUrl { get; set; } = string.Empty;
+    public int ConsumerConcurrency { get; set; } = 1;
+    public int MaxMessages { get; set; } = 1;
+    public int WaitTimeSeconds { get; set; } = 20;
+    public int VisibilityTimeoutSeconds { get; set; } = 60;
 }

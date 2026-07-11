@@ -65,17 +65,22 @@ Em `Development`, a aplicacao preserva SQL Server local, LocalStack quando `Mess
 
 Em `Production`, a aplicacao exige connection string, regiao AWS, URLs de filas e DLQs. Nao ha fallback para LocalStack nem banco local, e migrations automaticas sao bloqueadas fora de `Development`.
 
-## GitHub Actions
+## CI/CD
 
-- `Estoque CI`: valida PRs para `main`, restaura, compila, testa, valida configuracao, cria imagens locais, renderiza manifests sinteticos e valida Kubernetes em modo client.
-- `Estoque Deploy`: manual por `workflow_dispatch`, somente `main`, exige confirmacao `DEPLOY`, busca metadados no SSM, valida recursos AWS por metadata, publica imagens e aplica migration antes do Deployment.
-- `Estoque Rollback`: manual por `workflow_dispatch`, somente `main`, exige `ROLLBACK`, valida tag no ECR e altera somente a imagem runtime. Nao executa migration reversa.
+- CI principal: `Estoque CI`, executada em todo Pull Request para `main`.
+- Required check esperado na branch protection: `Estoque CI`.
+- Workflow manual: `Estoque Deploy`, executado somente por `workflow_dispatch` na `main`, com confirmation `DEPLOY`.
+- Repository Secrets usados pelo deploy: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`.
+- Repository Variables usadas pelo deploy: `AWS_REGION`.
+- A CI nao recebe credenciais AWS, nao publica imagens e nao altera AWS ou Kubernetes.
+- O deploy busca metadados no SSM, valida recursos AWS por metadata, publica imagens versionadas pelo SHA, aplica migration antes do Deployment e valida health/readiness.
+- Nao existe pipeline dedicada de rollback ou destroy. Para corrigir uma entrega, reverta ou ajuste o codigo em nova branch, abra Pull Request, aguarde `Estoque CI`, faca merge na `main` e execute novamente `Estoque Deploy`.
+- Branch protection recomendada: Pull Request obrigatorio, required check `Estoque CI`, bloqueio de force push e bloqueio de delecao da branch. Segundo revisor nao e obrigatorio para execucao individual ou dupla.
 
 Execucao futura:
 
 ```text
 GitHub -> Actions -> Estoque Deploy -> Run workflow -> main -> DEPLOY
-GitHub -> Actions -> Estoque Rollback -> image_tag -> ROLLBACK
 ```
 
 As validacoes reais em AWS ficam pendentes enquanto o AWS Academy estiver indisponivel.

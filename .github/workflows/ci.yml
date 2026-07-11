@@ -4,18 +4,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "config/**"
-      - "deploy/**"
-      - "scripts/**"
-      - "Dockerfile"
-      - "Dockerfile.migration"
-      - ".dockerignore"
-      - "*.sln"
-      - "**/*.csproj"
-      - ".github/workflows/**"
 
 permissions:
   contents: read
@@ -23,6 +11,7 @@ permissions:
 jobs:
   build-test-validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -105,6 +94,10 @@ jobs:
       - name: Actionlint
         uses: raven-actions/actionlint@v2
 
+      - name: Validate workflow contract
+        shell: pwsh
+        run: ./scripts/validate-workflows.ps1
+
       - name: Static security search
         shell: pwsh
         run: |
@@ -117,7 +110,7 @@ jobs:
             'HorizontalPodAutoscaler',
             'replicas:\s*2',
             'maxNumberOfMessages:\s*10',
-            'terraform destroy',
+            ('terraform ' + 'destroy'),
             'Fase3',
             'fase-3'
           )

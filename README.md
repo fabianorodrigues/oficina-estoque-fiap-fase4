@@ -1,6 +1,8 @@
 # oficina-estoque-fiap-fase4
 
-Microsservico responsavel pelo catalogo de pecas e insumos, saldos de estoque, reservas e movimentacoes da Oficina.
+## Responsabilidade
+
+Microsservico responsavel pelo catalogo de pecas e insumos, saldos de estoque, reservas e movimentacoes da Oficina. Independente dos demais microsservicos: CI, deploy e banco lógico (`OficinaEstoqueDb`) próprios. Ponto de entrada da solução: [oficina-infra-fiap-fase4](../oficina-infra-fiap-fase4/README.md).
 
 ## Arquitetura
 
@@ -83,7 +85,7 @@ Execucao futura:
 GitHub -> Actions -> Estoque Deploy -> Run workflow -> main -> DEPLOY
 ```
 
-As validacoes reais em AWS ficam pendentes enquanto o AWS Academy estiver indisponivel.
+As validacoes reais em AWS dependem de credenciais AWS configuradas e das dependencias compartilhadas provisionadas.
 
 ## Build e testes locais
 
@@ -100,3 +102,7 @@ docker build -f Dockerfile.migration -t oficina-estoque:local-migration .
 ```
 
 Este servico e consumido pelo `oficina-ordens-servico-fiap-fase4` via HTTP interno e SQS, e faz parte do ambiente Docker Compose local descrito naquele repositorio.
+
+## Próximo componente
+
+Estoque é implantado de forma independente após as dependências compartilhadas (Infra DB, Platform, Auth). Após o deploy, o [oficina-ordens-servico-fiap-fase4](../oficina-ordens-servico-fiap-fase4/README.md) o consome via HTTP interno e SQS.

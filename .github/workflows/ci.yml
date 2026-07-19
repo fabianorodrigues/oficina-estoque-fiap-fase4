@@ -61,7 +61,7 @@ jobs:
         shell: pwsh
         run: >
           ./scripts/render-k8s-manifests.ps1
-          -OutputDirectory deploy/rendered
+          -OutputDirectory artifacts/k8s
           -RuntimeImage oficina-estoque:${{ github.sha }}
           -MigrationImage oficina-estoque:${{ github.sha }}-migration
           -AwsRegion us-east-1
@@ -75,11 +75,11 @@ jobs:
       - name: Kubeconform
         uses: yannh/kubeconform-action@v0.4.0
         with:
-          files: deploy/rendered
+          files: artifacts/k8s
           strict: "true"
 
       - name: Kubernetes dry-run client
-        run: kubectl apply --dry-run=client -f deploy/rendered
+        run: kubectl apply --dry-run=client -f artifacts/k8s
 
       - name: PowerShell AST parse
         shell: pwsh

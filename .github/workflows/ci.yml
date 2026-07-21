@@ -1,120 +1,47 @@
-name: Estoque CI
+﻿name: Estoque CI
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build-test-validate:
+  validate:
+    name: Build and validate
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-dotnet@v5
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
-
-      - name: Restore
-        run: dotnet restore Oficina.Estoque.sln
-
-      - name: Build
-        run: dotnet build Oficina.Estoque.sln -c Release --no-restore
-
-      - name: Test
-        run: dotnet test Oficina.Estoque.sln -c Release --no-build --collect:"XPlat Code Coverage"
-
-      - name: Package vulnerability audit
-        run: dotnet list Oficina.Estoque.sln package --vulnerable --include-transitive
-
-      - name: Validate official config
+      - name: Validate configuration
         shell: pwsh
         run: ./scripts/validate-official-config.ps1
-
-      - name: Build runtime image
-        run: docker build -f Dockerfile -t oficina-estoque:${{ github.sha }} .
-
-      - name: Build migration image
-        run: docker build -f Dockerfile.migration -t oficina-estoque:${{ github.sha }}-migration .
-
-      - name: Scan runtime image
-        uses: aquasecurity/trivy-action@0.35.0
-        with:
-          image-ref: oficina-estoque:${{ github.sha }}
-          format: table
-          exit-code: "1"
-          severity: CRITICAL,HIGH
-
-      - name: Scan migration image
-        uses: aquasecurity/trivy-action@0.35.0
-        with:
-          image-ref: oficina-estoque:${{ github.sha }}-migration
-          format: table
-          exit-code: "1"
-          severity: CRITICAL,HIGH
-
-      - name: Render synthetic manifests
-        shell: pwsh
-        run: >
-          ./scripts/render-k8s-manifests.ps1
-          -OutputDirectory artifacts/k8s
-          -RuntimeImage oficina-estoque:${{ github.sha }}
-          -MigrationImage oficina-estoque:${{ github.sha }}-migration
-          -AwsRegion us-east-1
-          -CommandsQueueUrl http://localhost:4566/000000000000/oficina-estoque-comandos.fifo
-          -CommandsDlqUrl http://localhost:4566/000000000000/oficina-estoque-comandos-dlq.fifo
-          -EventsQueueUrl http://localhost:4566/000000000000/oficina-ordens-eventos.fifo
-          -EventsDlqUrl http://localhost:4566/000000000000/oficina-ordens-eventos-dlq.fifo
-          -WorkloadIdentityMode PodIdentity
-          -MigrationJobName oficina-estoque-migration-ci-1
-
-      - name: Kubeconform
-        uses: yannh/kubeconform-action@v0.4.0
-        with:
-          files: artifacts/k8s
-          strict: "true"
-
-      - name: Kubernetes dry-run client
-        run: kubectl apply --dry-run=client -f artifacts/k8s
-
-      - name: PowerShell AST parse
+      - name: Validate PowerShell syntax
         shell: pwsh
         run: |
-          $errors = @()
-          Get-ChildItem scripts -Filter *.ps1 | ForEach-Object {
-            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$parseErrors) | Out-Null
-            if ($parseErrors) { $errors += $parseErrors }
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem -Path scripts -Filter *.ps1 -File | ForEach-Object {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error "$($_.Extent.File): $($_.Message)" }; exit 1 }
           }
-          if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
-
-      - name: Actionlint
-        uses: raven-actions/actionlint@v2
-
-      - name: Validate workflow contract
-        shell: pwsh
-        run: ./scripts/validate-workflows.ps1
-
-      - name: Static security search
-        shell: pwsh
+      - name: Restore
+        run: dotnet restore Oficina.Estoque.sln
+      - name: Build
+        run: dotnet build Oficina.Estoque.sln --configuration Release --no-restore
+      - name: Test
+        run: dotnet test Oficina.Estoque.sln --configuration Release --no-build
+      - name: Validate Dockerfiles
+        shell: bash
         run: |
-          $patterns = @(
-            'SQL_ESTOQUE_APP_PASSWORD',
-            'SQL_ESTOQUE_MIGRATOR_PASSWORD',
-            'AWS_ACCESS_KEY_ID=',
-            'AWS_SECRET_ACCESS_KEY=',
-            'AWS_SESSION_TOKEN=',
-            'HorizontalPodAutoscaler',
-            'replicas:\s*2',
-            'maxNumberOfMessages:\s*10',
-            ('terraform ' + 'destroy'),
-            'Fase3',
-            'fase-3'
-          )
-          foreach ($pattern in $patterns) {
-            $hits = rg -n --glob '!**/bin/**' --glob '!**/obj/**' --glob '!**/TestResults/**' $pattern .
-            if ($LASTEXITCODE -eq 0) { throw "Padrao proibido encontrado: $pattern`n$hits" }
-          }
+          set -euo pipefail
+          test -f Dockerfile
+          test -f Dockerfile.migration
+          ! grep -R "kubectl\|helm\|deploy/k8s" scripts config

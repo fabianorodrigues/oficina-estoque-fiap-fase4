@@ -16,11 +16,11 @@ Assert-True ($config.version -eq 1) "Versao de official.json invalida."
 Assert-True ($config.application.name -eq "oficina-estoque") "Aplicacao oficial invalida."
 Assert-True ($config.application.environment -eq "Production") "Ambiente oficial deve ser Production."
 Assert-True ($config.application.containerPort -eq 8080) "Porta oficial invalida."
-Assert-True ($config.kubernetes.namespace -eq "oficina") "Namespace oficial invalido."
-Assert-True ($config.kubernetes.deploymentName -eq "oficina-estoque") "Deployment oficial invalido."
-Assert-True ($config.kubernetes.serviceName -eq "oficina-estoque") "Service oficial invalido."
-Assert-True ($config.kubernetes.replicas -eq 1) "Replicas devem ser 1."
-Assert-True ($config.kubernetes.deploymentStrategy -eq "Recreate") "Strategy deve ser Recreate."
+Assert-True ($config.ecs.serviceName -eq "oficina-estoque") "ECS service oficial invalido."
+Assert-True ($config.ecs.containerName -eq "oficina-estoque") "ECS container oficial invalido."
+Assert-True ($config.ecs.migrationContainerName -eq "oficina-estoque-migration") "ECS migration container oficial invalido."
+Assert-True ($config.ecs.desiredCount -eq 1) "Desired count deve ser 1."
+Assert-True ($config.ecs.launchType -eq "FARGATE") "Launch type deve ser FARGATE."
 Assert-True ($config.queues.consumerConcurrency -eq 1) "Consumer concurrency deve ser 1."
 Assert-True ($config.queues.maxMessagesPerReceive -eq 1) "Max messages por receive deve ser 1."
 Assert-True ($config.queues.waitTimeSeconds -eq 20) "Wait time deve ser 20."
@@ -32,6 +32,11 @@ Assert-True ($config.secrets.runtimeDatabase -ne $config.secrets.migrationDataba
 $paths = @(
     $config.aws.clusterNameParameter,
     $config.aws.ecrRepositoryParameter,
+    $config.ecs.targetGroupArnParameter,
+    $config.ecs.logGroupNameParameter,
+    $config.ecs.taskSecurityGroupParameter,
+    $config.ecs.privateSubnet1Parameter,
+    $config.ecs.privateSubnet2Parameter,
     $config.secrets.runtimeDatabase,
     $config.secrets.migrationDatabase,
     $config.queues.commandsUrlParameter,

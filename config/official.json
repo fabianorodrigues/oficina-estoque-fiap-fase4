@@ -10,14 +10,17 @@
     "ecrRepositoryParameter": "/oficina/infra/ecr/estoque",
     "regionFromWorkflow": true
   },
-  "kubernetes": {
-    "namespace": "oficina",
-    "deploymentName": "oficina-estoque",
+  "ecs": {
     "serviceName": "oficina-estoque",
-    "runtimeServiceAccount": "estoque-runtime",
-    "migrationServiceAccount": "estoque-migrator",
-    "replicas": 1,
-    "deploymentStrategy": "Recreate"
+    "containerName": "oficina-estoque",
+    "migrationContainerName": "oficina-estoque-migration",
+    "desiredCount": 1,
+    "launchType": "FARGATE",
+    "targetGroupArnParameter": "/oficina/infra/ecs/estoque/target-group-arn",
+    "logGroupNameParameter": "/oficina/infra/ecs/estoque/log-group-name",
+    "taskSecurityGroupParameter": "/oficina/infra/ecs/task-security-group-id",
+    "privateSubnet1Parameter": "/oficina/infra/subnets/private/1",
+    "privateSubnet2Parameter": "/oficina/infra/subnets/private/2"
   },
   "secrets": {
     "runtimeDatabase": "/oficina/estoque/runtime-db",

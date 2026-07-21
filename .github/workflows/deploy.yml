@@ -20,6 +20,10 @@ jobs:
     name: Deploy Estoque
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECS_TASK_EXECUTION_ROLE_ARN: ${{ vars.ECS_TASK_EXECUTION_ROLE_ARN }}
+      ECS_TASK_ROLE_ARN: ${{ vars.ECS_TASK_ROLE_ARN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -39,9 +43,14 @@ jobs:
         shell: pwsh
         run: ./scripts/validate-official-config.ps1
 
-      - name: Validate AWS region
-        shell: bash
-        run: test -n "${{ vars.AWS_REGION }}"
+      - name: Validate deployment variables
+        shell: pwsh
+        run: |
+          foreach ($name in @('AWS_REGION', 'ECS_TASK_EXECUTION_ROLE_ARN', 'ECS_TASK_ROLE_ARN')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Repository Variable $name is required."
+            }
+          }
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5
@@ -57,19 +66,19 @@ jobs:
         run: |
           set -euo pipefail
           aws sts get-caller-identity >/dev/null
-          CLUSTER=$(aws ssm get-parameter --name /oficina/infra/cluster/name --region "${{ vars.AWS_REGION }}" --query Parameter.Value --output text)
-          NAMESPACE=$(aws ssm get-parameter --name /oficina/infra/cluster/namespace --region "${{ vars.AWS_REGION }}" --query Parameter.Value --output text)
-          ECR=$(aws ssm get-parameter --name /oficina/infra/ecr/estoque --region "${{ vars.AWS_REGION }}" --query Parameter.Value --output text)
-          COMMANDS_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/estoque-comandos/url --region "${{ vars.AWS_REGION }}" --query Parameter.Value --output text)
-          COMMANDS_DLQ_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/estoque-comandos-dlq/url --region "${{ vars.AWS_REGION }}" --query Parameter.Value --output text)
-          EVENTS_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/ordens-eventos/url --region "${{ vars.AWS_REGION }}" --query Parameter.Value --output text)
-          EVENTS_DLQ_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/ordens-eventos-dlq/url --region "${{ vars.AWS_REGION }}" --query Parameter.Value --output text)
+          CLUSTER=$(aws ssm get-parameter --name /oficina/infra/cluster/name --region "$AWS_REGION" --query Parameter.Value --output text)
+          ECR=$(aws ssm get-parameter --name /oficina/infra/ecr/estoque --region "$AWS_REGION" --query Parameter.Value --output text)
+          COMMANDS_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/estoque-comandos/url --region "$AWS_REGION" --query Parameter.Value --output text)
+          COMMANDS_DLQ_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/estoque-comandos-dlq/url --region "$AWS_REGION" --query Parameter.Value --output text)
+          EVENTS_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/ordens-eventos/url --region "$AWS_REGION" --query Parameter.Value --output text)
+          EVENTS_DLQ_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/ordens-eventos-dlq/url --region "$AWS_REGION" --query Parameter.Value --output text)
+          aws ssm get-parameter --name /oficina/infra/ecs/estoque/target-group-arn --region "$AWS_REGION" >/dev/null
+          aws ssm get-parameter --name /oficina/infra/ecs/estoque/log-group-name --region "$AWS_REGION" >/dev/null
+          aws ssm get-parameter --name /oficina/infra/ecs/task-security-group-id --region "$AWS_REGION" >/dev/null
           echo "cluster=${CLUSTER}" >> "$GITHUB_OUTPUT"
-          echo "namespace=${NAMESPACE}" >> "$GITHUB_OUTPUT"
           echo "ecr=${ECR}" >> "$GITHUB_OUTPUT"
           echo "runtime_image=${ECR}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
           echo "migration_image=${ECR}:${{ github.sha }}-migration" >> "$GITHUB_OUTPUT"
-          echo "migration_job=oficina-estoque-migration-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
           echo "commands_url=${COMMANDS_URL}" >> "$GITHUB_OUTPUT"
           echo "commands_dlq_url=${COMMANDS_DLQ_URL}" >> "$GITHUB_OUTPUT"
           echo "events_url=${EVENTS_URL}" >> "$GITHUB_OUTPUT"
@@ -115,7 +124,7 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: Login to ECR
-        uses: aws-actions/amazon-ecr-login@v3
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Push images
         shell: bash
@@ -123,59 +132,15 @@ jobs:
           docker push "${{ steps.awsmeta.outputs.runtime_image }}"
           docker push "${{ steps.awsmeta.outputs.migration_image }}"
 
-      - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name "${{ steps.awsmeta.outputs.cluster }}" --region "${{ vars.AWS_REGION }}"
-
-      - name: Render manifests
+      - name: Deploy to ECS
         shell: pwsh
-        run: >
-          ./scripts/render-k8s-manifests.ps1
-          -OutputDirectory artifacts/k8s
-          -RuntimeImage "${{ steps.awsmeta.outputs.runtime_image }}"
-          -MigrationImage "${{ steps.awsmeta.outputs.migration_image }}"
-          -AwsRegion "${{ vars.AWS_REGION }}"
-          -CommandsQueueUrl "${{ steps.awsmeta.outputs.commands_url }}"
-          -CommandsDlqUrl "${{ steps.awsmeta.outputs.commands_dlq_url }}"
-          -EventsQueueUrl "${{ steps.awsmeta.outputs.events_url }}"
-          -EventsDlqUrl "${{ steps.awsmeta.outputs.events_dlq_url }}"
-          -WorkloadIdentityMode PodIdentity
-          -MigrationJobName "${{ steps.awsmeta.outputs.migration_job }}"
-
-      - name: Apply dependencies
-        shell: bash
         run: |
-          kubectl get namespace "${{ steps.awsmeta.outputs.namespace }}"
-          kubectl get nodes
-          kubectl apply -f artifacts/k8s/service-account-runtime.yaml
-          kubectl apply -f artifacts/k8s/service-account-migration.yaml
-          kubectl apply -f artifacts/k8s/secret-provider-class-runtime.yaml
-          kubectl apply -f artifacts/k8s/secret-provider-class-migration.yaml
-          kubectl apply -f artifacts/k8s/configmap.yaml
-          kubectl apply -f artifacts/k8s/service.yaml
-
-      - name: Run migration
-        shell: bash
-        run: |
-          kubectl apply -f artifacts/k8s/migration-job.yaml
-          kubectl wait --for=condition=complete "job/${{ steps.awsmeta.outputs.migration_job }}" -n "${{ steps.awsmeta.outputs.namespace }}" --timeout=900s
-          kubectl logs "job/${{ steps.awsmeta.outputs.migration_job }}" -n "${{ steps.awsmeta.outputs.namespace }}"
-
-      - name: Deploy workload
-        shell: bash
-        run: |
-          kubectl apply -f artifacts/k8s/deployment.yaml
-          kubectl rollout status deployment/oficina-estoque -n "${{ steps.awsmeta.outputs.namespace }}" --timeout=600s
-
-      - name: Validate health
-        shell: bash
-        run: |
-          set -euo pipefail
-          kubectl port-forward -n "${{ steps.awsmeta.outputs.namespace }}" service/oficina-estoque 18080:80 &
-          PF_PID=$!
-          trap 'kill $PF_PID || true' EXIT
-          sleep 5
-          pwsh ./scripts/smoke-test.ps1 -BaseUrl http://127.0.0.1:18080
-          pwsh ./scripts/validate-estoque-deployment.ps1 -Namespace "${{ steps.awsmeta.outputs.namespace }}" -ExpectedImageTag "${{ github.sha }}"
+          ./scripts/deploy-ecs-fargate.ps1 `
+            -RuntimeImage "${{ steps.awsmeta.outputs.runtime_image }}" `
+            -MigrationImage "${{ steps.awsmeta.outputs.migration_image }}" `
+            -AwsRegion "$env:AWS_REGION" `
+            -TaskExecutionRoleArn "$env:ECS_TASK_EXECUTION_ROLE_ARN" `
+            -TaskRoleArn "$env:ECS_TASK_ROLE_ARN"
 
       - name: Publish summary
         shell: bash
@@ -186,10 +151,8 @@ jobs:
             echo "Runtime image tag: ${{ github.sha }}"
             echo "Migration image tag: ${{ github.sha }}-migration"
             echo "Cluster: ${{ steps.awsmeta.outputs.cluster }}"
-            echo "Namespace: ${{ steps.awsmeta.outputs.namespace }}"
-            echo "Migration Job: ${{ steps.awsmeta.outputs.migration_job }}"
-            echo "Deployment status: rollout complete"
-            echo "Health: checked"
-            echo "Readiness: checked"
+            echo "Service: oficina-estoque"
+            echo "Deployment status: ECS stable"
+            echo "Target health: healthy"
             echo "Queue names: oficina-estoque-comandos.fifo, oficina-ordens-eventos.fifo"
           } >> "$GITHUB_STEP_SUMMARY"

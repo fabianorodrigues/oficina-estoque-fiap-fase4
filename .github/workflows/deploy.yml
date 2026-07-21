@@ -1,0 +1,158 @@
+name: Estoque Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type DEPLOY to publish Estoque
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: estoque-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Estoque
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECS_TASK_EXECUTION_ROLE_ARN: ${{ vars.ECS_TASK_EXECUTION_ROLE_ARN }}
+      ECS_TASK_ROLE_ARN: ${{ vars.ECS_TASK_ROLE_ARN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Validate request
+        shell: bash
+        run: |
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${{ inputs.confirmation }}" = "DEPLOY"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Validate configuration
+        shell: pwsh
+        run: ./scripts/validate-official-config.ps1
+
+      - name: Validate deployment variables
+        shell: pwsh
+        run: |
+          foreach ($name in @('AWS_REGION', 'ECS_TASK_EXECUTION_ROLE_ARN', 'ECS_TASK_ROLE_ARN')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Repository Variable $name is required."
+            }
+          }
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Resolve AWS metadata
+        id: awsmeta
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity >/dev/null
+          CLUSTER=$(aws ssm get-parameter --name /oficina/infra/cluster/name --region "$AWS_REGION" --query Parameter.Value --output text)
+          ECR=$(aws ssm get-parameter --name /oficina/infra/ecr/estoque --region "$AWS_REGION" --query Parameter.Value --output text)
+          COMMANDS_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/estoque-comandos/url --region "$AWS_REGION" --query Parameter.Value --output text)
+          COMMANDS_DLQ_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/estoque-comandos-dlq/url --region "$AWS_REGION" --query Parameter.Value --output text)
+          EVENTS_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/ordens-eventos/url --region "$AWS_REGION" --query Parameter.Value --output text)
+          EVENTS_DLQ_URL=$(aws ssm get-parameter --name /oficina/infra/sqs/ordens-eventos-dlq/url --region "$AWS_REGION" --query Parameter.Value --output text)
+          aws ssm get-parameter --name /oficina/infra/ecs/estoque/target-group-arn --region "$AWS_REGION" >/dev/null
+          aws ssm get-parameter --name /oficina/infra/ecs/estoque/log-group-name --region "$AWS_REGION" >/dev/null
+          aws ssm get-parameter --name /oficina/infra/ecs/task-security-group-id --region "$AWS_REGION" >/dev/null
+          echo "cluster=${CLUSTER}" >> "$GITHUB_OUTPUT"
+          echo "ecr=${ECR}" >> "$GITHUB_OUTPUT"
+          echo "runtime_image=${ECR}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "migration_image=${ECR}:${{ github.sha }}-migration" >> "$GITHUB_OUTPUT"
+          echo "commands_url=${COMMANDS_URL}" >> "$GITHUB_OUTPUT"
+          echo "commands_dlq_url=${COMMANDS_DLQ_URL}" >> "$GITHUB_OUTPUT"
+          echo "events_url=${EVENTS_URL}" >> "$GITHUB_OUTPUT"
+          echo "events_dlq_url=${EVENTS_DLQ_URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate AWS resources metadata
+        shell: bash
+        run: |
+          aws sqs get-queue-attributes --queue-url "${{ steps.awsmeta.outputs.commands_url }}" --attribute-names FifoQueue RedrivePolicy VisibilityTimeout
+          aws sqs get-queue-attributes --queue-url "${{ steps.awsmeta.outputs.commands_dlq_url }}" --attribute-names FifoQueue
+          aws sqs get-queue-attributes --queue-url "${{ steps.awsmeta.outputs.events_url }}" --attribute-names FifoQueue RedrivePolicy
+          aws sqs get-queue-attributes --queue-url "${{ steps.awsmeta.outputs.events_dlq_url }}" --attribute-names FifoQueue
+          aws secretsmanager describe-secret --secret-id /oficina/estoque/runtime-db >/dev/null
+          aws secretsmanager describe-secret --secret-id /oficina/estoque/migration-db >/dev/null
+          aws secretsmanager list-secret-version-ids --secret-id /oficina/estoque/runtime-db --include-deprecated --query "Versions[?contains(VersionStages, \`AWSCURRENT\`)] | length(@)" --output text | grep -q '^1$'
+          aws secretsmanager list-secret-version-ids --secret-id /oficina/estoque/migration-db --include-deprecated --query "Versions[?contains(VersionStages, \`AWSCURRENT\`)] | length(@)" --output text | grep -q '^1$'
+
+      - name: Build solution
+        run: |
+          dotnet restore Oficina.Estoque.sln
+          dotnet build Oficina.Estoque.sln -c Release --no-restore
+          dotnet test Oficina.Estoque.sln -c Release --no-build
+
+      - name: Build images
+        run: |
+          docker build -f Dockerfile -t "${{ steps.awsmeta.outputs.runtime_image }}" .
+          docker build -f Dockerfile.migration -t "${{ steps.awsmeta.outputs.migration_image }}" .
+
+      - name: Scan images
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ steps.awsmeta.outputs.runtime_image }}
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+
+      - name: Scan migration image
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ steps.awsmeta.outputs.migration_image }}
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push images
+        shell: bash
+        run: |
+          docker push "${{ steps.awsmeta.outputs.runtime_image }}"
+          docker push "${{ steps.awsmeta.outputs.migration_image }}"
+
+      - name: Deploy to ECS
+        shell: pwsh
+        run: |
+          ./scripts/deploy-ecs-fargate.ps1 `
+            -RuntimeImage "${{ steps.awsmeta.outputs.runtime_image }}" `
+            -MigrationImage "${{ steps.awsmeta.outputs.migration_image }}" `
+            -AwsRegion "$env:AWS_REGION" `
+            -TaskExecutionRoleArn "$env:ECS_TASK_EXECUTION_ROLE_ARN" `
+            -TaskRoleArn "$env:ECS_TASK_ROLE_ARN"
+
+      - name: Publish summary
+        shell: bash
+        run: |
+          {
+            echo "Commit SHA: ${{ github.sha }}"
+            echo "ECR: ${{ steps.awsmeta.outputs.ecr }}"
+            echo "Runtime image tag: ${{ github.sha }}"
+            echo "Migration image tag: ${{ github.sha }}-migration"
+            echo "Cluster: ${{ steps.awsmeta.outputs.cluster }}"
+            echo "Service: oficina-estoque"
+            echo "Deployment status: ECS stable"
+            echo "Target health: healthy"
+            echo "Queue names: oficina-estoque-comandos.fifo, oficina-ordens-eventos.fifo"
+          } >> "$GITHUB_STEP_SUMMARY"

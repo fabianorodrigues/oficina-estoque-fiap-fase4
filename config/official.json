@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "application": {
+    "name": "oficina-estoque",
+    "environment": "Production",
+    "containerPort": 8080
+  },
+  "aws": {
+    "clusterNameParameter": "/oficina/infra/cluster/name",
+    "ecrRepositoryParameter": "/oficina/infra/ecr/estoque",
+    "regionFromWorkflow": true
+  },
+  "ecs": {
+    "serviceName": "oficina-estoque",
+    "containerName": "oficina-estoque",
+    "migrationContainerName": "oficina-estoque-migration",
+    "desiredCount": 1,
+    "launchType": "FARGATE",
+    "targetGroupArnParameter": "/oficina/infra/ecs/estoque/target-group-arn",
+    "logGroupNameParameter": "/oficina/infra/ecs/estoque/log-group-name",
+    "taskSecurityGroupParameter": "/oficina/infra/ecs/task-security-group-id",
+    "privateSubnet1Parameter": "/oficina/infra/subnets/private/1",
+    "privateSubnet2Parameter": "/oficina/infra/subnets/private/2"
+  },
+  "secrets": {
+    "runtimeDatabase": "/oficina/estoque/runtime-db",
+    "migrationDatabase": "/oficina/estoque/migration-db"
+  },
+  "queues": {
+    "commandsUrlParameter": "/oficina/infra/sqs/estoque-comandos/url",
+    "commandsArnParameter": "/oficina/infra/sqs/estoque-comandos/arn",
+    "commandsDlqUrlParameter": "/oficina/infra/sqs/estoque-comandos-dlq/url",
+    "commandsDlqArnParameter": "/oficina/infra/sqs/estoque-comandos-dlq/arn",
+    "eventsUrlParameter": "/oficina/infra/sqs/ordens-eventos/url",
+    "eventsArnParameter": "/oficina/infra/sqs/ordens-eventos/arn",
+    "eventsDlqUrlParameter": "/oficina/infra/sqs/ordens-eventos-dlq/url",
+    "eventsDlqArnParameter": "/oficina/infra/sqs/ordens-eventos-dlq/arn",
+    "consumerConcurrency": 1,
+    "maxMessagesPerReceive": 1,
+    "waitTimeSeconds": 20,
+    "visibilityTimeoutSeconds": 60
+  },
+  "health": {
+    "path": "/health",
+    "readinessPath": "/ready",
+    "initialDelaySeconds": 10,
+    "periodSeconds": 10,
+    "timeoutSeconds": 3,
+    "failureThreshold": 6
+  },
+  "deployment": {
+    "progressDeadlineSeconds": 600,
+    "terminationGracePeriodSeconds": 30
+  }
+}

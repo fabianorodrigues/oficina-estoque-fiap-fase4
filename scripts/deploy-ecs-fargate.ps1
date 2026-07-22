@@ -190,20 +190,24 @@ $desired = [int]$cfg.ecs.desiredCount
 
 AssertRdsIngressRule $rdsSecurityGroup $securityGroup
 
-$baseEnv = @(Env "ASPNETCORE_ENVIRONMENT" "Production"; Env "AWS_REGION" $AwsRegion; Env "Authentication__Mode" "")
+$baseEnv = @(
+    Env "ASPNETCORE_ENVIRONMENT" "Production"
+    Env "AWS_REGION" $AwsRegion
+    Env "Authentication__Mode" ""
+)
 $queueEnv = @(
-    Env "Messaging__Sqs__Enabled" "true",
-    Env "Messaging__Sqs__Region" $AwsRegion,
-    Env "Messaging__Sqs__CommandsQueueName" "oficina-estoque-comandos.fifo",
-    Env "Messaging__Sqs__CommandsDlqQueueName" "oficina-estoque-comandos-dlq.fifo",
-    Env "Messaging__Sqs__EventsQueueName" "oficina-ordens-eventos.fifo",
-    Env "Messaging__Sqs__CommandsQueueUrl" (Ssm $cfg.queues.commandsUrlParameter),
-    Env "Messaging__Sqs__CommandsDlqQueueUrl" (Ssm $cfg.queues.commandsDlqUrlParameter),
-    Env "Messaging__Sqs__EventsQueueUrl" (Ssm $cfg.queues.eventsUrlParameter),
-    Env "Messaging__Sqs__EventsDlqQueueUrl" (Ssm $cfg.queues.eventsDlqUrlParameter),
-    Env "Messaging__Sqs__ConsumerConcurrency" "$($cfg.queues.consumerConcurrency)",
-    Env "Messaging__Sqs__MaxMessages" "$($cfg.queues.maxMessagesPerReceive)",
-    Env "Messaging__Sqs__WaitTimeSeconds" "$($cfg.queues.waitTimeSeconds)",
+    Env "Messaging__Sqs__Enabled" "true"
+    Env "Messaging__Sqs__Region" $AwsRegion
+    Env "Messaging__Sqs__CommandsQueueName" "oficina-estoque-comandos.fifo"
+    Env "Messaging__Sqs__CommandsDlqQueueName" "oficina-estoque-comandos-dlq.fifo"
+    Env "Messaging__Sqs__EventsQueueName" "oficina-ordens-eventos.fifo"
+    Env "Messaging__Sqs__CommandsQueueUrl" (Ssm $cfg.queues.commandsUrlParameter)
+    Env "Messaging__Sqs__CommandsDlqQueueUrl" (Ssm $cfg.queues.commandsDlqUrlParameter)
+    Env "Messaging__Sqs__EventsQueueUrl" (Ssm $cfg.queues.eventsUrlParameter)
+    Env "Messaging__Sqs__EventsDlqQueueUrl" (Ssm $cfg.queues.eventsDlqUrlParameter)
+    Env "Messaging__Sqs__ConsumerConcurrency" "$($cfg.queues.consumerConcurrency)"
+    Env "Messaging__Sqs__MaxMessages" "$($cfg.queues.maxMessagesPerReceive)"
+    Env "Messaging__Sqs__WaitTimeSeconds" "$($cfg.queues.waitTimeSeconds)"
     Env "Messaging__Sqs__VisibilityTimeoutSeconds" "$($cfg.queues.visibilityTimeoutSeconds)"
 )
 $runtimeEnv = @($baseEnv + $queueEnv)

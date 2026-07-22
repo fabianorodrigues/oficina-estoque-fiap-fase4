@@ -75,10 +75,12 @@ jobs:
           aws ssm get-parameter --name /oficina/infra/ecs/estoque/target-group-arn --region "$AWS_REGION" >/dev/null
           aws ssm get-parameter --name /oficina/infra/ecs/estoque/log-group-name --region "$AWS_REGION" >/dev/null
           aws ssm get-parameter --name /oficina/infra/ecs/task-security-group-id --region "$AWS_REGION" >/dev/null
+          IMAGE_TAG="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "cluster=${CLUSTER}" >> "$GITHUB_OUTPUT"
           echo "ecr=${ECR}" >> "$GITHUB_OUTPUT"
-          echo "runtime_image=${ECR}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          echo "migration_image=${ECR}:${{ github.sha }}-migration" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "runtime_image=${ECR}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "migration_image=${ECR}:${IMAGE_TAG}-migration" >> "$GITHUB_OUTPUT"
           echo "commands_url=${COMMANDS_URL}" >> "$GITHUB_OUTPUT"
           echo "commands_dlq_url=${COMMANDS_DLQ_URL}" >> "$GITHUB_OUTPUT"
           echo "events_url=${EVENTS_URL}" >> "$GITHUB_OUTPUT"
@@ -148,8 +150,8 @@ jobs:
           {
             echo "Commit SHA: ${{ github.sha }}"
             echo "ECR: ${{ steps.awsmeta.outputs.ecr }}"
-            echo "Runtime image tag: ${{ github.sha }}"
-            echo "Migration image tag: ${{ github.sha }}-migration"
+            echo "Runtime image tag: ${{ steps.awsmeta.outputs.image_tag }}"
+            echo "Migration image tag: ${{ steps.awsmeta.outputs.image_tag }}-migration"
             echo "Cluster: ${{ steps.awsmeta.outputs.cluster }}"
             echo "Service: oficina-estoque"
             echo "Deployment status: ECS stable"

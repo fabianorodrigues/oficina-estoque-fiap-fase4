@@ -9,18 +9,22 @@ COPY src/Oficina.Estoque.Application/Oficina.Estoque.Application.csproj src/Ofic
 COPY src/Oficina.Estoque.Infrastructure/Oficina.Estoque.Infrastructure.csproj src/Oficina.Estoque.Infrastructure/
 COPY src/Oficina.Estoque.Api/Oficina.Estoque.Api.csproj src/Oficina.Estoque.Api/
 RUN dotnet restore src/Oficina.Estoque.Api/Oficina.Estoque.Api.csproj
-RUN dotnet tool install --tool-path /tools dotnet-ef
+RUN dotnet restore src/Oficina.Estoque.Api/Oficina.Estoque.Api.csproj --runtime linux-x64
+RUN dotnet tool install --tool-path /tools dotnet-ef --version 10.0.7
 
 COPY . .
+RUN dotnet build src/Oficina.Estoque.Api/Oficina.Estoque.Api.csproj --configuration Release --no-restore
 RUN /tools/dotnet-ef migrations bundle \
     --project src/Oficina.Estoque.Infrastructure/Oficina.Estoque.Infrastructure.csproj \
     --startup-project src/Oficina.Estoque.Api/Oficina.Estoque.Api.csproj \
     --configuration Release \
+    --runtime linux-x64 \
+    --self-contained \
     --output /app/efbundle
 
-FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}
+FROM mcr.microsoft.com/dotnet/runtime-deps:${DOTNET_VERSION} AS migration
 WORKDIR /app
 COPY --from=build /app/efbundle /app/efbundle
 RUN chmod +x /app/efbundle
 USER $APP_UID
-ENTRYPOINT ["/app/efbundle"]
+ENTRYPOINT ["/bin/sh", "-c", "/app/efbundle --connection \"$ConnectionStrings__OficinaEstoqueDb\""]

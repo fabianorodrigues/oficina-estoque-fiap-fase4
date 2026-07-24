@@ -10,7 +10,6 @@ using Oficina.Estoque.Infrastructure.Persistencia;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Configuration.AddKeyPerFile("/mnt/secrets-store", optional: true);
 builder.Configuration.AddEnvironmentVariables();
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options =>

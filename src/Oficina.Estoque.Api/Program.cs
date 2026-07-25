@@ -65,7 +65,17 @@ app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy", service = "oficina-estoque" }))
     .AllowAnonymous();
-app.MapGet("/ready", () => Results.Ok(new { status = "Ready", service = "oficina-estoque" }))
+// O Target Group do ALB aponta para /ready: a prontidao precisa refletir o
+// acesso ao proprio banco, e nao apenas o processo estar de pe.
+app.MapGet("/ready", async (EstoqueDbContext db, CancellationToken ct) =>
+    {
+        if (!await db.Database.CanConnectAsync(ct))
+        {
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        return Results.Ok(new { status = "Ready", service = "oficina-estoque" });
+    })
     .AllowAnonymous();
 
 app.MapControllers();

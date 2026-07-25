@@ -19,4 +19,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- O registro fail-open do OpenTelemetry e interno e precisa ser exercitado
+         por teste: e ele que garante que telemetria indisponivel nao derrube a
+         aplicacao. -->
+    <InternalsVisibleTo Include="Oficina.Estoque.UnitTests" />
+  </ItemGroup>
 </Project>

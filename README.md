@@ -6,7 +6,7 @@ Microsserviço de **peças, insumos, saldos e reservas** de estoque da solução
 ![ASP.NET Core](https://img.shields.io/badge/ASP.NET%20Core-API-512BD4?logo=dotnet&logoColor=white)
 ![EF Core](https://img.shields.io/badge/EF%20Core-SQL%20Server-CC2927?logo=microsoftsqlserver&logoColor=white)
 ![SQS FIFO](https://img.shields.io/badge/AWS-SQS%20FIFO-FF4F8B?logo=amazonaws&logoColor=white)
-![ECS Fargate](https://img.shields.io/badge/AWS-ECS%20Fargate-FF9900?logo=amazonaws&logoColor=white)
+![Kubernetes](https://img.shields.io/badge/AWS-EC2%20%C2%B7%20K3s-FF9900?logo=amazonaws&logoColor=white)
 
 ---
 
@@ -29,12 +29,12 @@ Microsserviço de **peças, insumos, saldos e reservas** de estoque da solução
 
 ## Visão geral
 
-A **Oficina** é uma plataforma de gestão de oficina mecânica implantada na AWS e distribuída em **6 repositórios** que compõem um único sistema. O cliente acessa uma **API Gateway HTTP**, que autentica na borda por uma **Lambda authorizer** e encaminha o tráfego, via **VPC Link**, para um **ALB interno** que roteia para três microsserviços **.NET 10 em ECS Fargate**. Os serviços se comunicam por HTTP interno e por filas **SQS FIFO**, e persistem em um **RDS SQL Server** compartilhado.
+A **Oficina** é uma plataforma de gestão de oficina mecânica implantada na AWS e distribuída em **6 repositórios** que compõem um único sistema. O cliente acessa uma **API Gateway HTTP**, que autentica na borda por uma **Lambda authorizer** e encaminha o tráfego, via **VPC Link**, para um **ALB interno** que roteia para três microsserviços **.NET 10 em Kubernetes (K3s single-node numa EC2 privada)**. Os serviços se comunicam por HTTP interno e por filas **SQS FIFO**, e persistem em um **RDS SQL Server** compartilhado.
 
 | Repositório | Responsabilidade | Etapas |
 |---|---|:---:|
 | [oficina-infra-db](https://github.com/fabianorodrigues/oficina-infra-db-fiap-fase4) | Rede, banco de dados, segredos e estado do Terraform | 1 e 3 |
-| [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4) | Plataforma ECS/ALB e entrada de API | 2 e 8 |
+| [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4) | Plataforma Kubernetes/ALB e entrada de API | 2 e 8 |
 | [oficina-auth-lambda](https://github.com/fabianorodrigues/oficina-auth-lambda-fiap-fase4) | Autenticação por CPF e validação de token | 4 |
 | [oficina-cadastro](https://github.com/fabianorodrigues/oficina-cadastro-fiap-fase4) | Clientes, veículos, funcionários e catálogo de serviços | 5 |
 | **oficina-estoque** *(este)* | Peças, insumos, saldos e reservas | 6 |
@@ -73,7 +73,7 @@ Combina uma API síncrona com um consumidor assíncrono, usando **caixa de entra
 flowchart LR
     Ordens["oficina-ordens-servico"] -->|"comandos"| FC["Fila de comandos<br/>FIFO"]
 
-    subgraph Estoque["oficina-estoque · ECS Fargate"]
+    subgraph Estoque["oficina-estoque · Kubernetes (K3s)"]
         direction TB
         R["Receptor<br/>grava na caixa de entrada"]
         P["Processador<br/>aplica a regra e grava na caixa de saída"]
@@ -138,16 +138,16 @@ Este serviço materializa esses cabeçalhos como *claims* e aplica as políticas
 
 | Valor | Origem | Criado por |
 |---|---|---|
-| Cluster, grupo de segurança e subnets das tasks | `/oficina/infra/cluster/name` · `/oficina/infra/ecs/task-security-group-id` · `/oficina/infra/subnets/private/{1,2}` | oficina-infra |
-| Registro de imagem, target group e grupo de log | `/oficina/infra/ecr/estoque` · `/oficina/infra/ecs/estoque/{target-group-arn,log-group-name}` | oficina-infra |
+| Node do cluster e namespace | `/oficina/infra/k8s/instance-id` · `/oficina/infra/k8s/namespace` | oficina-infra |
+| Registro de imagem, target group e NodePort | `/oficina/infra/ecr/estoque` · `/oficina/infra/services/estoque/{target-group-arn,node-port}` | oficina-infra |
 | Filas de comandos e eventos + DLQs | `/oficina/infra/sqs/{estoque-comandos,ordens-eventos}[-dlq]/url` | oficina-infra |
 | Credenciais de runtime e migração | `/oficina/estoque/{runtime,migration}-db` | oficina-infra-db |
 
-As credenciais são injetadas na task como **ECS secrets**; os endereços das filas, como variáveis de ambiente no deploy.
+As credenciais são lidas do Secrets Manager **dentro da EC2** e materializadas como **Secrets Kubernetes**, um para o Deployment e outro para o Migration Job; os endereços das filas vão no ConfigMap.
 
 ### Publica
 
-O serviço ECS Fargate no *target group* do ALB, os eventos de resultado de reserva nas filas e o esquema do banco de estoque, aplicado por uma task de migração.
+O Deployment e o Service NodePort registrados no *target group* do ALB, os eventos de resultado de reserva nas filas e o esquema do banco de estoque, aplicado por um Migration Job nomeado com o commit SHA.
 
 ---
 
@@ -159,32 +159,35 @@ Configure em **Settings → Secrets and variables → Actions** do repositório.
 |---|---|---|:---:|
 | Secret | `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` · `AWS_SESSION_TOKEN` | Credenciais temporárias da AWS | **Sim** |
 | Variable | `AWS_REGION` | Região dos recursos | **Sim** |
-| Variable | `ECS_TASK_EXECUTION_ROLE_ARN` | Role de execução das tasks ECS | **Sim** |
-| Variable | `ECS_TASK_ROLE_ARN` | Role de aplicação das tasks ECS | **Sim** |
+| Variable | `SONAR_PROJECT_KEY` · `SONAR_ORGANIZATION` | Projeto e organização no SonarCloud | **Sim** |
+| Secret | `SONAR_TOKEN` | Token de análise do SonarCloud | **Sim** |
+| Variable | `TF_STATE_BUCKET` | Fallback do bucket que recebe o pacote de manifests | Não |
 
-### Papéis IAM das tasks ECS — não provisionados automaticamente
+### Papéis IAM — não provisionados automaticamente
 
-O deploy registra *task definitions* Fargate e reutiliza duas roles IAM que **precisam existir antes da etapa 6**. Nenhum workflow da solução as cria.
+Nenhum workflow desta solução cria ou altera recursos IAM. O deploy não passa
+role alguma: os Pods herdam a role do **instance profile da EC2 do cluster**,
+configurada uma única vez em `oficina-infra` pela variável `INSTANCE_PROFILE_NAME`.
 
-| Variable | Trust | Permissões mínimas |
-|---|---|---|
-| `ECS_TASK_EXECUTION_ROLE_ARN` | `ecs-tasks.amazonaws.com` | `AmazonECSTaskExecutionRolePolicy` e `secretsmanager:GetSecretValue` nos segredos `/oficina/estoque/{runtime,migration}-db` |
-| `ECS_TASK_ROLE_ARN` | `ecs-tasks.amazonaws.com` | Ações SQS nas filas de comandos e eventos: `sqs:ReceiveMessage`, `SendMessage`, `DeleteMessage`, `GetQueueAttributes` |
+Essa role precisa permitir, no mínimo: registro no Systems Manager,
+`ecr:GetAuthorizationToken` e pull das imagens, `secretsmanager:GetSecretValue`
+nos segredos `/oficina/estoque/{runtime,migration}-db` e `ssm:GetParameter`
+com `kms:Decrypt` em `/oficina/deploy/*`.
 
 > [!NOTE]
-> É o **mesmo par de roles** usado pelo bootstrap e pelos demais serviços. A `ECS_TASK_ROLE_ARN` compartilhada precisa reunir as permissões SQS exigidas por estoque e ordens.
-
+> Sem IRSA e sem Pod Identity, todos os Pods do namespace compartilham essa role.
+> O detalhe está registrado como risco em `docs/ARCHITECTURE.md`.
 ### Variáveis de ambiente da aplicação
 
-Definidas pelo deploy na *task definition*, com os endereços das filas preenchidos no momento do deploy.
+Definidas pelo deploy no ConfigMap do namespace, com os endereços das filas resolvidos a partir do Systems Manager dentro da EC2.
 
 | Chave | Valor no ambiente publicado |
 |---|---|
-| `ConnectionStrings__OficinaEstoqueDb` | Injetada como ECS secret a partir do Secrets Manager |
+| `ConnectionStrings__OficinaEstoqueDb` | Materializada como Secret Kubernetes dentro da EC2, a partir do Secrets Manager |
 | `Messaging__Sqs__Enabled` | **Ativado** |
 | `Messaging__Sqs__*QueueUrl` | Os quatro endereços de fila |
 | `Messaging__Sqs__ConsumerConcurrency` · `MaxMessages` | Fixos em 1, para preservar a ordem |
-| `Database__ApplyMigrations` | Desativado — migrações rodam em task própria |
+| `Database__ApplyMigrations` | Desativado — migrações rodam em Migration Job próprio |
 
 A aplicação recusa-se a iniciar fora de desenvolvimento se faltar a cadeia de conexão ou qualquer um dos quatro endereços de fila.
 
@@ -194,9 +197,18 @@ A aplicação recusa-se a iniciar fora de desenvolvimento se faltar a cadeia de 
 
 **Actions → Estoque Deploy → Run workflow → `confirmation` = `DEPLOY`**
 
-Roda apenas na branch `main`. Sequência: valida a requisição e as variáveis → descobre cluster, registro de imagem e filas → **confere que as filas são FIFO e têm DLQ associada** → compila e testa → constrói as imagens de runtime e de migração → varredura de vulnerabilidades, que interrompe o deploy em achado alto ou crítico → envia ao ECR → **executa a task de migração (ECS Run Task) e aguarda** → registra a *task definition* de runtime → **cria ou atualiza o serviço ECS** e aguarda ficar estável → confirma destino saudável no ALB.
+Roda apenas na branch `main`. Sequência: valida a requisição → valida o contrato
+oficial → **SonarCloud begin** → compila → testa com cobertura → **gate local de
+80%** → **SonarCloud end com Quality Gate** → descobre registro de imagem, node,
+target group e NodePort → constrói as imagens de runtime e de migração →
+**varredura de vulnerabilidades, que interrompe o deploy em achado alto ou
+crítico** → envia ao ECR → **Stage** (pacote de manifests transportado por URL
+pré-assinada, com o Run Command recebendo apenas o nome de um SecureString e o
+hash) → remove o objeto S3 e o SecureString → **Deploy** (pull das duas imagens,
+ConfigMap, Secrets, Migration Job, Deployment, Service, rollout e capacidade do
+node) → confirma o *target group* saudável.
 
-As imagens são marcadas com o hash do commit. Se a task de migração falhar, o serviço não é atualizado.
+As imagens são marcadas com o hash do commit. Se o Migration Job falhar, o Deployment e o Service não são aplicados.
 
 ---
 
@@ -207,7 +219,7 @@ As imagens são marcadas com o hash do commit. Se a task de migração falhar, o
 | Serviço | O que verificar |
 |---|---|
 | **ECR** | Repositório de estoque com a imagem do commit publicado |
-| **ECS → Serviços** | `oficina-estoque` estável, com a task de runtime em execução |
+| **EC2 → Instâncias** | Node do cluster `running` e `Online` no Systems Manager |
 | **SQS** | Fila de comandos com mensagens sendo consumidas e **DLQ vazia** |
 
 Uma DLQ com mensagens é o principal sinal de falha deste serviço: indica comando que falhou três vezes ou de tipo desconhecido.
@@ -219,11 +231,11 @@ Uma DLQ com mensagens é o principal sinal de falha deste serviço: indica coman
 
 ```bash
 REGIAO=<sua-regiao>
-CLUSTER=$(aws ssm get-parameter --name /oficina/infra/cluster/name \
+INSTANCIA=$(aws ssm get-parameter --name /oficina/infra/k8s/instance-id \
   --region "$REGIAO" --query 'Parameter.Value' --output text)
 
-aws ecs describe-services --cluster "$CLUSTER" --services oficina-estoque \
-  --region "$REGIAO" --query 'services[0].{Status:status,Rodando:runningCount}' --output table
+aws ssm describe-instance-information --filters "Key=InstanceIds,Values=$INSTANCIA" \
+  --region "$REGIAO" --query 'InstanceInformationList[0].PingStatus' --output text
 
 # Profundidade das filas: a DLQ deve permanecer em zero
 for q in estoque-comandos estoque-comandos-dlq ordens-eventos ordens-eventos-dlq; do
@@ -269,7 +281,7 @@ Os testes cobrem regras de estoque, metadados de persistência e contratos públ
 
 ## Próxima etapa
 
-**Etapa 7 — obrigatória.** Pré-condição: serviço `oficina-estoque` estável no ECS, task de migração encerrada com código 0 e a fila de comandos sendo consumida com a DLQ vazia.
+**Etapa 7 — obrigatória.** Pré-condição: Deployment `oficina-estoque` disponível no cluster, Migration Job concluído com sucesso e a fila de comandos sendo consumida com a DLQ vazia.
 
 **→ [oficina-ordens-servico](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4)** — seção [Como executar](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4#como-executar).
 

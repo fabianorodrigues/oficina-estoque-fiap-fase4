@@ -35,7 +35,7 @@ A **Oficina** é uma plataforma de gestão de oficina mecânica implantada na AW
 
 | Repositório | Responsabilidade | Etapas |
 |---|---|:---:|
-| [oficina-infra-db](https://github.com/fabianorodrigues/oficina-infra-db-fiap-fase4) | Rede, banco de dados, segredos e estado do Terraform | 1 e 3 |
+| [oficina-infra-db](https://github.com/fabianorodrigues/oficina-infra-db-fiap-fase4) | Rede, banco de dados, segredos, estado do Terraform e admin inicial | 1, 3 e 5.1 |
 | [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4) | Plataforma Kubernetes/ALB e entrada de API | 2 e 8 |
 | [oficina-auth-lambda](https://github.com/fabianorodrigues/oficina-auth-lambda-fiap-fase4) | Autenticação por CPF e validação de token | 4 |
 | [oficina-cadastro](https://github.com/fabianorodrigues/oficina-cadastro-fiap-fase4) | Clientes, veículos, funcionários e catálogo de serviços | 5 |
@@ -52,9 +52,10 @@ A **Oficina** é uma plataforma de gestão de oficina mecânica implantada na AW
 |:---:|---|---|:---:|
 | 1 | oficina-infra-db | Database Infrastructure Deploy | `APPLY` |
 | 2 | oficina-infra | Platform Deploy | `APPLY` |
-| 3 | oficina-infra-db | Database Bootstrap | `BOOTSTRAP` |
+| 3 | oficina-infra-db | Database Bootstrap (estrutura) | `BOOTSTRAP` |
 | 4 | oficina-auth-lambda | Auth Deploy | `DEPLOY` |
 | 5 | oficina-cadastro | Cadastro Deploy | `DEPLOY` |
+| 5.1 | oficina-infra-db | Initial Admin Provision | `PROVISION_ADMIN` |
 | **6** | **oficina-estoque** | **Estoque Deploy** | `DEPLOY` |
 | 7 | oficina-ordens-servico | Ordens Deploy | `DEPLOY` |
 | 8 | oficina-infra | Entrypoint Deploy | `APPLY` |
@@ -63,7 +64,7 @@ A **Oficina** é uma plataforma de gestão de oficina mecânica implantada na AW
 Após a etapa 8, o **Observability Validate** (oficina-infra) está disponível como validação **opcional**.
 
 > [!IMPORTANT]
-> Este é o segundo dos três serviços. Depende do cluster, do registro de imagem e das **filas SQS** criados na etapa 2, e do banco criado na etapa 3. Não há dependência de deploy entre as etapas 5, 6 e 7 — podem rodar em paralelo.
+> Este é o segundo dos três serviços. Depende do cluster, do registro de imagem e das **filas SQS** criados na etapa 2, e do banco criado na etapa 3. Não depende do admin inicial da etapa 5.1 para publicar o workload; essa etapa é exigida pela validação funcional da etapa 9.
 
 ---
 

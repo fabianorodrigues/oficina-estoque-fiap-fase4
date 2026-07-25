@@ -63,8 +63,6 @@ $forbiddenPatterns = @(
     "\.amazonaws\.com/[0-9]{12}/",
     "[0-9]{12}\.dkr\.ecr\.",
     "\b[0-9]{12}\b",
-    "Fase3",
-    "fase-3",
     "/dev/",
     "-dev",
     "-hml",

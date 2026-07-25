@@ -23,7 +23,7 @@ Microsserviço de **peças, insumos, saldos e reservas** de estoque da solução
 - [Validação](#validação)
 - [Execução local](#execução-local)
 - [Limitações conhecidas](#limitações-conhecidas)
-- [Próximas etapas](#próximas-etapas)
+- [Próxima etapa](#próxima-etapa)
 
 ---
 
@@ -34,11 +34,11 @@ A **Oficina** é uma plataforma de gestão de oficina mecânica implantada na AW
 | Repositório | Responsabilidade | Etapas |
 |---|---|:---:|
 | [oficina-infra-db](https://github.com/fabianorodrigues/oficina-infra-db-fiap-fase4) | Rede, banco de dados, segredos e estado do Terraform | 1 e 3 |
-| [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4) | Plataforma ECS/ALB e entrada de API | 2, 6 e 7 |
+| [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4) | Plataforma ECS/ALB e entrada de API | 2 e 8 |
 | [oficina-auth-lambda](https://github.com/fabianorodrigues/oficina-auth-lambda-fiap-fase4) | Autenticação por CPF e validação de token | 4 |
 | [oficina-cadastro](https://github.com/fabianorodrigues/oficina-cadastro-fiap-fase4) | Clientes, veículos, funcionários e catálogo de serviços | 5 |
-| **oficina-estoque** *(este)* | Peças, insumos, saldos e reservas | 5 |
-| [oficina-ordens-servico](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4) | Ordens de serviço, orçamento e saga de pagamento | 5 e 8 |
+| **oficina-estoque** *(este)* | Peças, insumos, saldos e reservas | 6 |
+| [oficina-ordens-servico](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4) | Ordens de serviço, orçamento e saga de pagamento | 7 e 9 |
 
 **Papel deste repositório:** gerencia o catálogo de peças e insumos, os saldos, as movimentações e as reservas. É o participante do lado do estoque na **saga distribuída**: recebe comandos de reserva das ordens de serviço e responde com eventos de resultado.
 
@@ -52,13 +52,16 @@ A **Oficina** é uma plataforma de gestão de oficina mecânica implantada na AW
 | 2 | oficina-infra | Platform Deploy | `APPLY` |
 | 3 | oficina-infra-db | Database Bootstrap | `BOOTSTRAP` |
 | 4 | oficina-auth-lambda | Auth Deploy | `DEPLOY` |
-| **5** | cadastro · **oficina-estoque** · ordens-servico | **Deploy** | `DEPLOY` |
-| 6 | oficina-infra | Entrypoint Deploy | `APPLY` |
-| 7 | oficina-infra | Observability Validate | — |
-| 8 | oficina-ordens-servico | AWS E2E Validate | `VALIDATE` |
+| 5 | oficina-cadastro | Cadastro Deploy | `DEPLOY` |
+| **6** | **oficina-estoque** | **Estoque Deploy** | `DEPLOY` |
+| 7 | oficina-ordens-servico | Ordens Deploy | `DEPLOY` |
+| 8 | oficina-infra | Entrypoint Deploy | `APPLY` |
+| 9 | oficina-ordens-servico | Collection Postman (execução manual) | — |
+
+Após a etapa 8, o **Observability Validate** (oficina-infra) está disponível como validação **opcional**.
 
 > [!IMPORTANT]
-> Este é um dos três serviços da **etapa 5**, que podem rodar em paralelo. Depende do cluster, do registro de imagem e das **filas SQS** criados na etapa 2, e do banco criado na etapa 3.
+> Este é o segundo dos três serviços. Depende do cluster, do registro de imagem e das **filas SQS** criados na etapa 2, e do banco criado na etapa 3. Não há dependência de deploy entre as etapas 5, 6 e 7 — podem rodar em paralelo.
 
 ---
 
@@ -161,7 +164,7 @@ Configure em **Settings → Secrets and variables → Actions** do repositório.
 
 ### Papéis IAM das tasks ECS — não provisionados automaticamente
 
-O deploy registra *task definitions* Fargate e reutiliza duas roles IAM que **precisam existir antes da etapa 5**. Nenhum workflow da solução as cria.
+O deploy registra *task definitions* Fargate e reutiliza duas roles IAM que **precisam existir antes da etapa 6**. Nenhum workflow da solução as cria.
 
 | Variable | Trust | Permissões mínimas |
 |---|---|---|
@@ -235,7 +238,7 @@ done
 
 </details>
 
-Após a **etapa 6**, a verificação de saúde também responde pela API pública, em `/health/estoque`.
+Após a **etapa 8**, a verificação de saúde também responde pela API pública, em `/health/estoque`.
 
 ---
 
@@ -264,11 +267,12 @@ Os testes cobrem regras de estoque, metadados de persistência e contratos públ
 
 ---
 
-## Próximas etapas
+## Próxima etapa
 
-Publique os demais serviços da **etapa 5**, se ainda não o fez:
+**Etapa 7 — obrigatória.** Pré-condição: serviço `oficina-estoque` estável no ECS, task de migração encerrada com código 0 e a fila de comandos sendo consumida com a DLQ vazia.
 
-- **→ [oficina-cadastro](https://github.com/fabianorodrigues/oficina-cadastro-fiap-fase4)**
-- **→ [oficina-ordens-servico](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4)**
+**→ [oficina-ordens-servico](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4)** — seção [Como executar](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4#como-executar).
 
-Com os três no ar, siga para a **etapa 6** em [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4), que publica as rotas na API Gateway.
+Com os três serviços no ar, siga para a **etapa 8** em [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4), que publica as rotas na API Gateway.
+
+Para revisar a etapa anterior, volte a **[oficina-cadastro](https://github.com/fabianorodrigues/oficina-cadastro-fiap-fase4)** (etapa 5).

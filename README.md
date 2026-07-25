@@ -1,5 +1,7 @@
 # oficina-estoque
 
+![Coverage](https://img.shields.io/badge/line%20coverage-85.11%25-brightgreen.svg)
+
 Microsserviço de **peças, insumos, saldos e reservas** de estoque da solução **Oficina**.
 
 ![.NET](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)
@@ -267,6 +269,12 @@ dotnet build -c Release
 dotnet test
 ```
 
+### Evidências de cobertura de testes
+
+- Line coverage real: **85.11%** (480/564 linhas), medido em 25/07/2026 com `dotnet test Oficina.Estoque.sln --configuration Release --settings .runsettings --collect:"XPlat Code Coverage"`.
+- CI: [Estoque CI](https://github.com/fabianorodrigues/oficina-estoque-fiap-fase4/actions/workflows/ci.yml) executa o gate local de 80% e publica o artefato `coverage-${run_id}`.
+- Configuração de cobertura: [`.runsettings`](.runsettings) e [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
 Os testes cobrem regras de estoque, metadados de persistência e contratos públicos.
 
 ---
@@ -275,7 +283,7 @@ Os testes cobrem regras de estoque, metadados de persistência e contratos públ
 
 - **Processamento estritamente serial.** Concorrência e lote fixos em 1 para preservar a ordem: consistência custa vazão.
 - **Réplica única, sem escala automática**, por decisão de projeto — reforçada por verificação na CI.
-- **Cobertura coletada, sem limite mínimo** de qualidade.
+- **Cobertura com gate local de 80%.** O CI reprova quando a cobertura de linhas fica abaixo do mínimo.
 - **Sem reprocessamento automático da DLQ.** Mensagens que chegam lá exigem intervenção manual.
 
 ---

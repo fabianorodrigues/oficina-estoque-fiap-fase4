@@ -16,11 +16,23 @@ Assert-True ($config.version -eq 1) "Versao de official.json invalida."
 Assert-True ($config.application.name -eq "oficina-estoque") "Aplicacao oficial invalida."
 Assert-True ($config.application.environment -eq "Production") "Ambiente oficial deve ser Production."
 Assert-True ($config.application.containerPort -eq 8080) "Porta oficial invalida."
-Assert-True ($config.ecs.serviceName -eq "oficina-estoque") "ECS service oficial invalido."
-Assert-True ($config.ecs.containerName -eq "oficina-estoque") "ECS container oficial invalido."
-Assert-True ($config.ecs.migrationContainerName -eq "oficina-estoque-migration") "ECS migration container oficial invalido."
-Assert-True ($config.ecs.desiredCount -eq 1) "Desired count deve ser 1."
-Assert-True ($config.ecs.launchType -eq "FARGATE") "Launch type deve ser FARGATE."
+Assert-True ($null -eq $config.PSObject.Properties['ecs']) "Bloco ecs removido: use kubernetes."
+Assert-True ($config.kubernetes.deploymentName -eq "oficina-estoque") "Deployment oficial invalido."
+Assert-True ($config.kubernetes.serviceName -eq "oficina-estoque") "Service oficial invalido."
+Assert-True ($config.kubernetes.containerName -eq "oficina-estoque") "Container oficial invalido."
+Assert-True ($config.kubernetes.migrationJobPrefix -eq "oficina-estoque-migration") "Prefixo do Migration Job invalido."
+Assert-True ($config.kubernetes.replicas -eq 1) "Replicas deve ser 1."
+Assert-True ($config.kubernetes.nodePort -ge 30000 -and $config.kubernetes.nodePort -le 32767) "NodePort fora da faixa 30000-32767."
+foreach ($manifestKey in @('configMap', 'deployment', 'service', 'migrationJob', 'secretApp', 'secretMigration')) {
+    $manifestPath = $config.kubernetes.manifests.$manifestKey
+    Assert-True ((-not [string]::IsNullOrWhiteSpace($manifestPath)) -and (Test-Path -LiteralPath $manifestPath -PathType Leaf)) "Manifesto ausente: $manifestKey"
+}
+# Um Secret unico servindo Deployment e Job daria ao runtime a credencial de
+# migration; os dois templates precisam ser arquivos distintos.
+Assert-True ($config.kubernetes.manifests.secretApp -ne $config.kubernetes.manifests.secretMigration) "secretApp e secretMigration devem ser manifests distintos."
+Assert-True ($config.deploy.s3Prefix -eq "k8s-deploy/estoque/") "deploy.s3Prefix invalido."
+Assert-True ($config.deploy.presignedUrlTtlSeconds -gt 0 -and $config.deploy.presignedUrlTtlSeconds -le 300) "TTL da URL pre-assinada deve ficar entre 1 e 300 segundos."
+Assert-True ($config.coverage.minimumLinePercentage -ge 80) "Cobertura minima deve ser ao menos 80."
 Assert-True ($config.queues.consumerConcurrency -eq 1) "Consumer concurrency deve ser 1."
 Assert-True ($config.queues.maxMessagesPerReceive -eq 1) "Max messages por receive deve ser 1."
 Assert-True ($config.queues.waitTimeSeconds -eq 20) "Wait time deve ser 20."
@@ -30,15 +42,14 @@ Assert-True ($config.health.readinessPath -eq "/ready") "Readiness path invalido
 Assert-True ($config.secrets.runtimeDatabase -ne $config.secrets.migrationDatabase) "Secrets runtime e migration devem ser distintos."
 
 $paths = @(
-    $config.aws.clusterNameParameter,
+    $config.aws.namespaceParameter,
+    $config.aws.instanceIdParameter,
     $config.aws.ecrRepositoryParameter,
-    $config.ecs.targetGroupArnParameter,
-    $config.ecs.logGroupNameParameter,
-    $config.ecs.taskSecurityGroupParameter,
-    $config.ecs.privateSubnet1Parameter,
-    $config.ecs.privateSubnet2Parameter,
     $config.secrets.runtimeDatabase,
     $config.secrets.migrationDatabase,
+    $config.kubernetes.targetGroupArnParameter,
+    $config.kubernetes.nodePortParameter,
+    $config.deploy.parameterPathPrefix,
     $config.queues.commandsUrlParameter,
     $config.queues.commandsArnParameter,
     $config.queues.commandsDlqUrlParameter,

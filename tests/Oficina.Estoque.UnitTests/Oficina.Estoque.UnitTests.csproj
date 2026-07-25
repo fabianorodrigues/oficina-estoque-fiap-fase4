@@ -8,8 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Oficina.Estoque.Api\Oficina.Estoque.Api.csproj" />
     <ProjectReference Include="..\..\src\Oficina.Estoque.Application\Oficina.Estoque.Application.csproj" />
     <ProjectReference Include="..\..\src\Oficina.Estoque.Domain\Oficina.Estoque.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Oficina.Estoque.Infrastructure\Oficina.Estoque.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

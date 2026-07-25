@@ -128,7 +128,7 @@ Este serviço materializa esses cabeçalhos como *claims* e aplica as políticas
 **Rotas internas**, consumidas apenas pelas ordens de serviço e **não publicadas na API Gateway**: consulta de disponibilidade e de materiais em lote.
 
 > [!NOTE]
-> `/ready` neste serviço responde de forma estática e **não verifica a conexão com o banco**.
+> `/ready` **verifica a conexão com o banco** e responde `503` quando ela falha. É esse endpoint que o *target group* do ALB usa como health check, então o destino só fica saudável com o serviço pronto para atender. `/health` continua refletindo apenas o processo.
 
 ---
 
@@ -159,8 +159,8 @@ Configure em **Settings → Secrets and variables → Actions** do repositório.
 |---|---|---|:---:|
 | Secret | `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` · `AWS_SESSION_TOKEN` | Credenciais temporárias da AWS | **Sim** |
 | Variable | `AWS_REGION` | Região dos recursos | **Sim** |
-| Variable | `SONAR_PROJECT_KEY` · `SONAR_ORGANIZATION` | Projeto e organização no SonarCloud | **Sim** |
-| Secret | `SONAR_TOKEN` | Token de análise do SonarCloud | **Sim** |
+| Variable | `SONAR_PROJECT_KEY` · `SONAR_ORGANIZATION` | Projeto e organização no SonarCloud | Só com `SONAR_TOKEN` |
+| Secret | `SONAR_TOKEN` | Token de análise do SonarCloud. Vazio ignora a análise; o gate local de cobertura continua valendo | Não |
 | Variable | `TF_STATE_BUCKET` | Fallback do bucket que recebe o pacote de manifests | Não |
 
 ### Papéis IAM — não provisionados automaticamente
@@ -198,8 +198,9 @@ A aplicação recusa-se a iniciar fora de desenvolvimento se faltar a cadeia de 
 **Actions → Estoque Deploy → Run workflow → `confirmation` = `DEPLOY`**
 
 Roda apenas na branch `main`. Sequência: valida a requisição → valida o contrato
-oficial → **SonarCloud begin** → compila → testa com cobertura → **gate local de
-80%** → **SonarCloud end com Quality Gate** → descobre registro de imagem, node,
+oficial → **SonarCloud begin, quando configurado** → compila → testa com
+cobertura → **gate local de 80%** → **SonarCloud end com Quality Gate, quando
+configurado** → descobre registro de imagem, node,
 target group e NodePort → constrói as imagens de runtime e de migração →
 **varredura de vulnerabilidades, que interrompe o deploy em achado alto ou
 crítico** → envia ao ECR → **Stage** (pacote de manifests transportado por URL

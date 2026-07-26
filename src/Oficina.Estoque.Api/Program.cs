@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Oficina.Estoque.Api.Middleware;
@@ -12,10 +11,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration.AddEnvironmentVariables();
 builder.Logging.ClearProviders();
-builder.Logging.AddJsonConsole(options =>
-{
-    options.JsonWriterOptions = new JsonWriterOptions { Indented = false };
-});
+builder.Logging.AddOficinaJsonConsole(builder.Configuration, defaultServiceName: "oficina-estoque");
 
 builder.Services.AddControllers();
 builder.Services.AddEstoqueApplication();

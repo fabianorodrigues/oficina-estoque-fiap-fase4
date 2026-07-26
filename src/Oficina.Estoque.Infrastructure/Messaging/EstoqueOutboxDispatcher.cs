@@ -39,6 +39,10 @@ internal sealed class EstoqueOutboxDispatcher(
 
         foreach (var message in messages)
         {
+            // O span de envio ao SQS e criado pela instrumentacao AWS dentro
+            // deste escopo. Aqui so existe o span de despacho, cujo parent vem
+            // do envelope e liga a publicacao a origem do fluxo.
+            using var activity = MessagingTelemetry.StartOutboxDispatch(message, options.Value.EventsQueueName);
             try
             {
                 await sqs.SendMessageAsync(new SendMessageRequest
@@ -46,12 +50,15 @@ internal sealed class EstoqueOutboxDispatcher(
                     QueueUrl = _queueUrl,
                     MessageBody = message.Body,
                     MessageGroupId = message.OrdemServicoId.ToString(),
-                    MessageDeduplicationId = message.MessageId.ToString()
+                    MessageDeduplicationId = message.MessageId.ToString(),
+                    MessageAttributes = MessagingTelemetry.BusinessAttributes(message)
                 }, ct);
                 message.MarkPublished();
+                MessagingTelemetry.SetResult(activity, "published");
             }
             catch (Exception ex)
             {
+                MessagingTelemetry.SetFailure(activity, ex);
                 logger.LogError(ex, "Falha ao publicar Outbox {MessageId}.", message.MessageId);
                 message.MarkFailed(ex.Message);
                 await Task.Delay(TimeSpan.FromSeconds(Math.Min(message.Attempts * 2, 30)), ct);

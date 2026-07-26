@@ -37,6 +37,20 @@ internal sealed class EstoqueInboxProcessor(
         inbox.Claim(now.AddSeconds(30));
         await db.SaveChangesAsync(ct);
 
+        // Unica Activity de consumo do fluxo, com parent vindo do contexto que o
+        // receiver transferiu para o envelope. Os background services rodavam sem
+        // Activity nenhuma, deixando toda chamada SQL e SQS orfa.
+        using var activity = MessagingTelemetry.StartInboxConsume(inbox, options.Value.CommandsQueueName);
+
+        // O scope leva os campos de correlacao para todo log emitido no consumo.
+        using var logScope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["CorrelationId"] = inbox.CorrelationId,
+            ["OrdemServicoId"] = inbox.OrdemServicoId,
+            ["MessageId"] = inbox.MessageId,
+            ["MessageType"] = inbox.MessageType
+        });
+
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         try
         {
@@ -50,10 +64,12 @@ internal sealed class EstoqueInboxProcessor(
 
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
+            MessagingTelemetry.SetResult(activity, inbox.Status.ToString().ToLowerInvariant());
         }
         catch (Exception ex)
         {
             await transaction.RollbackAsync(ct);
+            MessagingTelemetry.SetFailure(activity, ex);
             logger.LogError(ex, "Falha ao processar Inbox {MessageId}.", inbox.MessageId);
             if (inbox.Attempts >= 3)
             {

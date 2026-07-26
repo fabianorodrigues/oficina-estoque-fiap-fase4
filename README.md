@@ -36,8 +36,8 @@ A **Oficina** é uma plataforma de gestão de oficina mecânica implantada na AW
 
 | Repositório | Responsabilidade | Etapas |
 |---|---|:---:|
-| [oficina-infra-db](https://github.com/fabianorodrigues/oficina-infra-db-fiap-fase4) | Rede, banco de dados, segredos, estado do Terraform e admin inicial | 1, 3 e 5.1 |
-| [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4) | Plataforma Kubernetes/ALB e entrada de API | 2 e 8 |
+| [oficina-infra-db](https://github.com/fabianorodrigues/oficina-infra-db-fiap-fase4) | Rede, banco de dados, segredos, estado do Terraform e admin inicial | 1, 3 e 6 |
+| [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4) | Plataforma Kubernetes/ALB, entrada de API e observabilidade | 2, 9 e 10 |
 | [oficina-auth-lambda](https://github.com/fabianorodrigues/oficina-auth-lambda-fiap-fase4) | Autenticação por CPF e validação de token | 4 |
 | [oficina-cadastro](https://github.com/fabianorodrigues/oficina-cadastro-fiap-fase4) | Clientes, veículos, funcionários e catálogo de serviços | 5 |
 | **oficina-estoque** *(este)* | Peças, insumos, saldos e reservas | 6 |
@@ -56,16 +56,17 @@ A **Oficina** é uma plataforma de gestão de oficina mecânica implantada na AW
 | 3 | oficina-infra-db | Database Bootstrap (estrutura) | `BOOTSTRAP` |
 | 4 | oficina-auth-lambda | Auth Deploy | `DEPLOY` |
 | 5 | oficina-cadastro | Cadastro Deploy | `DEPLOY` |
-| 5.1 | oficina-infra-db | Initial Admin Provision | `PROVISION_ADMIN` |
-| **6** | **oficina-estoque** | **Estoque Deploy** | `DEPLOY` |
-| 7 | oficina-ordens-servico | Ordens Deploy | `DEPLOY` |
-| 8 | oficina-infra | Entrypoint Deploy | `APPLY` |
-| 9 | oficina-ordens-servico | Collection Postman (execução manual) | — |
+| 6 | oficina-infra-db | Initial Admin Provision | `PROVISION_ADMIN` |
+| **7** | **oficina-estoque** | **Estoque Deploy** | `DEPLOY` |
+| 8 | oficina-ordens-servico | Ordens Deploy | `DEPLOY` |
+| 9 | oficina-infra | Entrypoint Deploy | `APPLY` |
+| 10 | oficina-infra | Observability Deploy | `DEPLOY` |
+| 11 | oficina-ordens-servico | Collection Postman (execução manual) | — |
 
-Após a etapa 8, o **Observability Validate** (oficina-infra) está disponível como validação **opcional**.
+Após a etapa 9, execute o **Observability Deploy** (oficina-infra) com `mode=DEPLOY` antes da validação funcional final.
 
 > [!IMPORTANT]
-> Este é o segundo dos três serviços. Depende do cluster, do registro de imagem e das **filas SQS** criados na etapa 2, e do banco criado na etapa 3. Não depende do admin inicial da etapa 5.1 para publicar o workload; essa etapa é exigida pela validação funcional da etapa 9.
+> Este é o segundo dos três serviços. Depende do cluster, do registro de imagem e das **filas SQS** criados na etapa 2, e do banco criado na etapa 3. Não depende do admin inicial da etapa 6 para publicar o workload; essa etapa é exigida pela validação funcional da etapa 11.
 
 ---
 
@@ -255,7 +256,7 @@ done
 
 </details>
 
-Após a **etapa 8**, a verificação de saúde também responde pela API pública, em `/health/estoque`.
+Após a **etapa 9**, a verificação de saúde também responde pela API pública, em `/health/estoque`.
 
 ---
 
@@ -288,9 +289,9 @@ traces e métricas por OTLP gRPC ao gateway interno e escreve logs JSON no stdou
 que o receiver `filelog` coleta — a aplicação **não** exporta log por OTLP, para não
 entregar o mesmo registro por dois caminhos.
 
-**Variáveis no ConfigMap:** `OTEL_EXPORTER_OTLP_ENDPOINT` (opcional; sem ele a
-API sobe sem registrar OpenTelemetry/exporter), `OTEL_SERVICE_VERSION` (commit
-SHA) e `OTEL_RESOURCE_ATTRIBUTES`. O `service.name` vem do código
+**Variáveis no ConfigMap:** `OTEL_EXPORTER_OTLP_ENDPOINT` (endpoint interno
+obrigatório do Collector; o exporter é fail-open se o gateway ainda não
+responder), `OTEL_SERVICE_VERSION` (commit SHA) e `OTEL_RESOURCE_ATTRIBUTES`. O `service.name` vem do código
 (`oficina-estoque`), sem `OTEL_SERVICE_NAME` duplicado no manifesto. Nenhuma
 credencial da New Relic entra no Pod.
 
@@ -356,6 +357,6 @@ Detalhes, queries do dashboard, alertas e troubleshooting em `docs/OBSERVABILITY
 
 **→ [oficina-ordens-servico](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4)** — seção [Como executar](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4#como-executar).
 
-Com os três serviços no ar, siga para a **etapa 8** em [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4), que publica as rotas na API Gateway.
+Com os três serviços no ar, siga para a **etapa 9** em [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4), que publica as rotas na API Gateway, e depois para a **etapa 10** de observabilidade.
 
 Para revisar a etapa anterior, volte a **[oficina-cadastro](https://github.com/fabianorodrigues/oficina-cadastro-fiap-fase4)** (etapa 5).

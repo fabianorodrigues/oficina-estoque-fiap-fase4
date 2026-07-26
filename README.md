@@ -24,6 +24,7 @@ Microsserviço de **peças, insumos, saldos e reservas** de estoque da solução
 - [Como executar](#como-executar)
 - [Validação](#validação)
 - [Execução local](#execução-local)
+- [Observabilidade](#observabilidade)
 - [Limitações conhecidas](#limitações-conhecidas)
 - [Próxima etapa](#próxima-etapa)
 
@@ -277,6 +278,67 @@ dotnet test
 - Configuração de cobertura: [`.runsettings`](.runsettings) e [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 Os testes cobrem regras de estoque, metadados de persistência e contratos públicos.
+
+---
+
+## Observabilidade
+
+Telemetria por OpenTelemetry, com um único Collector no cluster. O serviço envia
+traces e métricas por OTLP gRPC ao gateway interno e escreve logs JSON no stdout,
+que o receiver `filelog` coleta — a aplicação **não** exporta log por OTLP, para não
+entregar o mesmo registro por dois caminhos.
+
+**Variáveis no ConfigMap:** `OpenTelemetry__Enabled`,
+`OpenTelemetry__OtlpEndpoint`, `OTEL_EXPORTER_OTLP_ENDPOINT` (igual ao anterior, e o
+guard reprova divergência), `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`,
+`OTEL_SERVICE_NAME=oficina-estoque`, `OTEL_SERVICE_VERSION` (commit SHA),
+`OTEL_RESOURCE_ATTRIBUTES` e `OTEL_METRIC_EXPORT_INTERVAL`. Nenhuma credencial da
+New Relic entra no Pod.
+
+**Contrato dos logs**, com os campos no nível superior do JSON:
+
+```
+timestamp, level, message, service.name, service.version, deployment.environment,
+correlationId, trace.id, span.id, ordemServicoId, messageId, messageType, sagaState
+```
+
+No consumo de mensagem os campos `correlationId`, `ordemServicoId`, `messageId` e
+`messageType` vêm de um escopo de log aberto pelo Inbox Processor, então todo log do
+processamento sai correlacionado.
+
+### Propagação de trace pelo SQS
+
+Uma única fonte de span por etapa:
+
+```
+MessageJson.Envelope  captura o contexto na criação do Outbox
+OutboxDispatcher      extrai o contexto do envelope
+                      cria ActivityKind.Internal: oficina.outbox.dispatch
+AWS Instrumentation   cria o span real de envio SQS
+                      injeta traceparent/tracestate nos MessageAttributes
+Receiver              solicita MessageAttributeNames = All
+                      transfere o contexto para o envelope persistido
+InboxProcessor        cria a ÚNICA ActivityKind.Consumer
+```
+
+Três decisões que evitam defeito silencioso:
+
+- **Sem injeção manual de `traceparent`.** A instrumentação AWS já cria o span de
+  envio e injeta a propagação; somar um Producer manual duplicaria o span e faria o
+  dashboard contar a mesma publicação duas vezes. Os `MessageAttributes` manuais são
+  só de negócio: `correlationId`, `causationId`, `ordemServicoId` e `messageType`.
+- **O contexto viaja no envelope, sem migration.** O Outbox é gravado numa transação
+  e publicado depois, noutro contexto; os campos `traceparent` e `tracestate` são
+  opcionais e aditivos, e mensagem gravada antes da mudança continua válida.
+- **O receiver transfere o contexto.** A instrumentação AWS injeta nos
+  `MessageAttributes` mas não atualiza o JSON do envelope. Sem a transferência, o
+  Consumer viraria filho do contexto anterior ao envio — mesmo `traceId`, relação
+  causal errada.
+
+**Fail-open.** Falha do Collector ou do New Relic registra erro local e o serviço
+continua atendendo e consumindo mensagens.
+
+Detalhes, queries do dashboard, alertas e troubleshooting em `docs/OBSERVABILITY.md`.
 
 ---
 

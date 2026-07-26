@@ -490,7 +490,7 @@ public class ObservabilidadeECorrelacaoTests
     }
 
     [Fact]
-    public void Telemetria_habilitada_registra_tracing()
+    public void Telemetria_sem_endpoint_nao_registra_nada()
     {
         var services = new ServiceCollection();
 
@@ -498,8 +498,25 @@ public class ObservabilidadeECorrelacaoTests
             new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["OpenTelemetry:Enabled"] = "true",
-                    ["OpenTelemetry:OtlpEndpoint"] = "http://collector.example.invalid:4317"
+                    ["OpenTelemetry:Enabled"] = "true"
+                })
+                .Build(),
+            new LoggingBuilderStub(services),
+            "oficina-estoque");
+
+        Assert.DoesNotContain(services, x => x.ServiceType.FullName?.Contains("OpenTelemetry") == true);
+    }
+
+    [Fact]
+    public void Endpoint_otlp_registra_tracing()
+    {
+        var services = new ServiceCollection();
+
+        services.AddOpenTelemetryFailOpen(
+            new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://collector.example.invalid:4317"
                 })
                 .Build(),
             new LoggingBuilderStub(services),

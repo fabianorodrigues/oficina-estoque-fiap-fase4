@@ -288,12 +288,11 @@ traces e métricas por OTLP gRPC ao gateway interno e escreve logs JSON no stdou
 que o receiver `filelog` coleta — a aplicação **não** exporta log por OTLP, para não
 entregar o mesmo registro por dois caminhos.
 
-**Variáveis no ConfigMap:** `OpenTelemetry__Enabled`,
-`OpenTelemetry__OtlpEndpoint`, `OTEL_EXPORTER_OTLP_ENDPOINT` (igual ao anterior, e o
-guard reprova divergência), `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`,
-`OTEL_SERVICE_NAME=oficina-estoque`, `OTEL_SERVICE_VERSION` (commit SHA),
-`OTEL_RESOURCE_ATTRIBUTES` e `OTEL_METRIC_EXPORT_INTERVAL`. Nenhuma credencial da
-New Relic entra no Pod.
+**Variáveis no ConfigMap:** `OTEL_EXPORTER_OTLP_ENDPOINT` (opcional; sem ele a
+API sobe sem registrar OpenTelemetry/exporter), `OTEL_SERVICE_VERSION` (commit
+SHA) e `OTEL_RESOURCE_ATTRIBUTES`. O `service.name` vem do código
+(`oficina-estoque`), sem `OTEL_SERVICE_NAME` duplicado no manifesto. Nenhuma
+credencial da New Relic entra no Pod.
 
 **Contrato dos logs**, com os campos no nível superior do JSON:
 

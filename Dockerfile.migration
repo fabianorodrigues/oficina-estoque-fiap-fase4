@@ -4,6 +4,7 @@ FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
 WORKDIR /src
 
 COPY global.json ./
+COPY Directory.Packages.props ./
 COPY src/Oficina.Estoque.Domain/Oficina.Estoque.Domain.csproj src/Oficina.Estoque.Domain/
 COPY src/Oficina.Estoque.Application/Oficina.Estoque.Application.csproj src/Oficina.Estoque.Application/
 COPY src/Oficina.Estoque.Infrastructure/Oficina.Estoque.Infrastructure.csproj src/Oficina.Estoque.Infrastructure/

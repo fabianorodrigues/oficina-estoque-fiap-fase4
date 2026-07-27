@@ -1,119 +1,175 @@
-# oficina-estoque
+<h1 align="center">Oficina · Estoque</h1>
 
-![Coverage](https://img.shields.io/badge/line%20coverage-85.11%25-brightgreen.svg)
+<p align="center">
+  Microsserviço de <strong>peças, insumos, saldos e reservas</strong> da solução <strong>Oficina</strong>,
+  e participante do lado do estoque na saga distribuída.
+</p>
 
-Microsserviço de **peças, insumos, saldos e reservas** de estoque da solução **Oficina**.
+<p align="center">
+  <img alt="Line coverage" src="https://img.shields.io/badge/line%20coverage-85.11%25-brightgreen">
+  <img alt="Gate de cobertura" src="https://img.shields.io/badge/gate%20de%20cobertura-80%25-informational">
+</p>
 
-![.NET](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)
-![ASP.NET Core](https://img.shields.io/badge/ASP.NET%20Core-API-512BD4?logo=dotnet&logoColor=white)
-![EF Core](https://img.shields.io/badge/EF%20Core-SQL%20Server-CC2927?logo=microsoftsqlserver&logoColor=white)
-![SQS FIFO](https://img.shields.io/badge/AWS-SQS%20FIFO-FF4F8B?logo=amazonaws&logoColor=white)
-![Kubernetes](https://img.shields.io/badge/AWS-EC2%20%C2%B7%20K3s-FF9900?logo=amazonaws&logoColor=white)
+<p align="center">
+  <img alt=".NET" src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white">
+  <img alt="ASP.NET Core" src="https://img.shields.io/badge/ASP.NET%20Core-API-512BD4?logo=dotnet&logoColor=white">
+  <img alt="EF Core" src="https://img.shields.io/badge/EF%20Core-SQL%20Server-CC2927?logo=microsoftsqlserver&logoColor=white">
+  <img alt="SQS FIFO" src="https://img.shields.io/badge/AWS-SQS%20FIFO-FF4F8B?logo=amazonaws&logoColor=white">
+  <img alt="Kubernetes" src="https://img.shields.io/badge/Kubernetes-K3s-326CE5?logo=kubernetes&logoColor=white">
+  <img alt="GitHub Actions" src="https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white">
+</p>
 
 ---
 
 ## Sumário
 
-- [Visão geral](#visão-geral)
-- [Ordem de deploy da solução](#ordem-de-deploy-da-solução)
+- [Responsabilidade](#responsabilidade)
+- [Solução integrada](#solução-integrada)
+- [Ordem de deploy](#ordem-de-deploy)
 - [Arquitetura](#arquitetura)
-- [Autenticação](#autenticação)
 - [Endpoints](#endpoints)
-- [O que consome e o que publica](#o-que-consome-e-o-que-publica)
-- [Configuração](#configuração)
+- [Pré-requisitos manuais](#pré-requisitos-manuais)
+- [Contratos consumidos e publicados](#contratos-consumidos-e-publicados)
+- [Como configurar](#como-configurar)
 - [Como executar](#como-executar)
-- [Validação](#validação)
-- [Execução local](#execução-local)
+- [Como validar](#como-validar)
+- [Ambiente local](#ambiente-local)
 - [Observabilidade](#observabilidade)
-- [Limitações conhecidas](#limitações-conhecidas)
 - [Próxima etapa](#próxima-etapa)
 
 ---
 
-## Visão geral
+## Responsabilidade
 
-A **Oficina** é uma plataforma de gestão de oficina mecânica implantada na AWS e distribuída em **6 repositórios** que compõem um único sistema. O cliente acessa uma **API Gateway HTTP**, que autentica na borda por uma **Lambda authorizer** e encaminha o tráfego, via **VPC Link**, para um **ALB interno** que roteia para três microsserviços **.NET 10 em Kubernetes (K3s single-node numa EC2 privada)**. Os serviços se comunicam por HTTP interno e por filas **SQS FIFO**, e persistem em um **RDS SQL Server** compartilhado.
+Gestão de materiais da oficina, publicada na **etapa 7**.
 
-| Repositório | Responsabilidade | Etapas |
-|---|---|:---:|
-| [oficina-infra-db](https://github.com/fabianorodrigues/oficina-infra-db-fiap-fase4) | Rede, banco de dados, segredos, estado do Terraform e admin inicial | 1, 3 e 6 |
-| [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4) | Plataforma Kubernetes/ALB, entrada de API e observabilidade | 2, 9 e 10 |
-| [oficina-auth-lambda](https://github.com/fabianorodrigues/oficina-auth-lambda-fiap-fase4) | Autenticação por CPF e validação de token | 4 |
-| [oficina-cadastro](https://github.com/fabianorodrigues/oficina-cadastro-fiap-fase4) | Clientes, veículos, funcionários e catálogo de serviços | 5 |
-| **oficina-estoque** *(este)* | Peças, insumos, saldos e reservas | 6 |
-| [oficina-ordens-servico](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4) | Ordens de serviço, orçamento e saga de pagamento | 7 e 9 |
+| Domínio | Conteúdo |
+|---|---|
+| Peças e insumos | Catálogo, cadastro e manutenção |
+| Saldos e movimentações | Posição atual e ajustes de entrada e saída |
+| Reservas | Bloqueio e liberação de material para uma ordem de serviço |
 
-**Papel deste repositório:** gerencia o catálogo de peças e insumos, os saldos, as movimentações e as reservas. É o participante do lado do estoque na **saga distribuída**: recebe comandos de reserva das ordens de serviço e responde com eventos de resultado.
+É o participante do lado do estoque na **saga distribuída**: recebe comandos de reserva das ordens de serviço e responde com eventos de resultado.
+
+| Recebe | Responde |
+|---|---|
+| Reservar estoque | Estoque reservado · Reserva recusada |
+| Liberar reserva de estoque | Reserva liberada · Falha ao liberar |
 
 ---
 
-## Ordem de deploy da solução
+## Solução integrada
+
+A **Oficina** é uma plataforma de gestão de oficina mecânica implantada na AWS e distribuída em **6 repositórios que formam um único sistema**. O cliente acessa uma **API Gateway HTTP**, autenticada na borda por **Lambdas**; o tráfego segue por **VPC Link** até um **ALB interno**, que roteia para três microsserviços **.NET 10** em **Kubernetes (K3s)**. Os serviços conversam por HTTP interno e por **filas SQS FIFO**, e persistem em um **RDS SQL Server** com um banco isolado por serviço.
+
+```mermaid
+flowchart TB
+    Cliente([Cliente HTTP])
+    Gateway["API Gateway HTTP<br/>rotas públicas da solução"]
+    Auth["Lambdas de autenticação<br/>login por CPF · validação do token"]
+    ALB["ALB interno<br/>alcançado por VPC Link"]
+
+    subgraph Cluster["Cluster Kubernetes K3s · EC2 privada"]
+        direction LR
+        Cadastro["oficina-cadastro"]
+        Ordens["oficina-ordens-servico"]
+        Estoque["oficina-estoque"]
+    end
+
+    Banco[("RDS SQL Server<br/>um banco por serviço")]
+
+    Cliente --> Gateway
+    Gateway --> Auth
+    Gateway --> ALB
+    ALB --> Cadastro
+    ALB --> Ordens
+    ALB --> Estoque
+    Ordens <-->|"SQS FIFO"| Estoque
+    Cadastro --> Banco
+    Ordens --> Banco
+    Estoque --> Banco
+
+    classDef borda fill:#1f6feb,stroke:#0b3d91,color:#fff
+    classDef servico fill:#2da44e,stroke:#166534,color:#fff
+    classDef dados fill:#CC2927,stroke:#7a1717,color:#fff
+    class Gateway,Auth,ALB borda
+    class Cadastro,Ordens,Estoque servico
+    class Banco dados
+```
+
+| Repositório | Responsabilidade | Etapas |
+|---|---|:---:|
+| [oficina-infra-db](https://github.com/fabianorodrigues/oficina-infra-db-fiap-fase4) | Rede, banco de dados, segredos, estado do Terraform e administrador inicial | 1 · 3 · 6 |
+| [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4) | Plataforma Kubernetes/ALB, entrada pública da API e observabilidade | 2 · 9 · 10 |
+| [oficina-auth-lambda](https://github.com/fabianorodrigues/oficina-auth-lambda-fiap-fase4) | Autenticação por CPF e validação de token na borda | 4 |
+| [oficina-cadastro](https://github.com/fabianorodrigues/oficina-cadastro-fiap-fase4) | Clientes, veículos, funcionários e catálogo de serviços | 5 |
+| **oficina-estoque** *(este)* | Peças, insumos, saldos e reservas | 7 |
+| [oficina-ordens-servico](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4) | Ordens de serviço, orçamento e saga de pagamento | 8 · 11 |
+
+---
+
+## Ordem de deploy
 
 | # | Repositório | Workflow | Confirmação |
 |:---:|---|---|:---:|
 | 1 | oficina-infra-db | Database Infrastructure Deploy | `APPLY` |
 | 2 | oficina-infra | Platform Deploy | `APPLY` |
-| 3 | oficina-infra-db | Database Bootstrap (estrutura) | `BOOTSTRAP` |
+| 3 | oficina-infra-db | Database Bootstrap | `BOOTSTRAP` |
 | 4 | oficina-auth-lambda | Auth Deploy | `DEPLOY` |
 | 5 | oficina-cadastro | Cadastro Deploy | `DEPLOY` |
 | 6 | oficina-infra-db | Initial Admin Provision | `PROVISION_ADMIN` |
-| **7** | **oficina-estoque** | **Estoque Deploy** | `DEPLOY` |
+| **7** | **oficina-estoque** *(este)* | **Estoque Deploy** | `DEPLOY` |
 | 8 | oficina-ordens-servico | Ordens Deploy | `DEPLOY` |
 | 9 | oficina-infra | Entrypoint Deploy | `APPLY` |
 | 10 | oficina-infra | Observability Deploy | `DEPLOY` |
-| 11 | oficina-ordens-servico | Collection Postman (execução manual) | — |
-
-Após a etapa 9, execute o **Observability Deploy** (oficina-infra) com `mode=DEPLOY` antes da validação funcional final.
+| 11 | oficina-ordens-servico | Collection Postman (manual) | — |
 
 > [!IMPORTANT]
-> Este é o segundo dos três serviços. Depende do cluster, do registro de imagem e das **filas SQS** criados na etapa 2, e do banco criado na etapa 3. Não depende do admin inicial da etapa 6 para publicar o workload; essa etapa é exigida pela validação funcional da etapa 11.
+> Depende do cluster, do registro de imagem e das **filas SQS** criados na etapa 2, e do banco criado na etapa 3. Não depende do administrador inicial da etapa 6 para publicar o workload — essa credencial é exigida apenas pela validação funcional da etapa 11.
 
 ---
 
 ## Arquitetura
 
-Combina uma API síncrona com um consumidor assíncrono, usando **caixa de entrada e caixa de saída** para garantir processamento exatamente uma vez e entrega confiável, mesmo com reentrega de mensagens.
+Uma API síncrona combinada com um consumidor assíncrono. O padrão **caixa de entrada e caixa de saída** garante processamento exatamente uma vez e entrega confiável mesmo com reentrega de mensagens.
 
 ```mermaid
-flowchart LR
-    Ordens["oficina-ordens-servico"] -->|"comandos"| FC["Fila de comandos<br/>FIFO"]
+flowchart TB
+    OrdensEnvia["oficina-ordens-servico"]
+    FilaComandos["Fila de comandos<br/>FIFO"]
 
-    subgraph Estoque["oficina-estoque · Kubernetes (K3s)"]
+    subgraph Servico["oficina-estoque · Kubernetes"]
         direction TB
-        R["Receptor<br/>grava na caixa de entrada"]
-        P["Processador<br/>aplica a regra e grava na caixa de saída"]
-        D["Despachante<br/>publica os eventos"]
-        R --> P --> D
+        Receptor["Receptor<br/>grava na caixa de entrada"]
+        Processador["Processador<br/>aplica a regra e grava na caixa de saída"]
+        Despachante["Despachante<br/>publica os eventos"]
+        Receptor --> Processador --> Despachante
     end
 
-    FC --> R
-    P --> DB[("OficinaEstoqueDb")]
-    D -->|"eventos"| FE["Fila de eventos<br/>FIFO"]
-    FE --> Ordens
-    P -.->|"após 3 tentativas"| DLQ["Dead-letter queue"]
+    OrdensEnvia --> FilaComandos
+    FilaComandos --> Receptor
+    Processador --> Banco[("OficinaEstoqueDb")]
+    Processador -.->|"após 3 tentativas"| DLQ["Dead-letter queue"]
+    Despachante --> FilaEventos["Fila de eventos<br/>FIFO"]
+    FilaEventos --> OrdensRecebe["oficina-ordens-servico"]
 
-    classDef svc fill:#2da44e,stroke:#166534,color:#fff
-    classDef data fill:#CC2927,stroke:#7a1717,color:#fff
-    classDef queue fill:#FF4F8B,stroke:#a11d55,color:#fff
-    class R,P,D svc
-    class DB data
-    class FC,FE,DLQ queue
+    classDef servico fill:#2da44e,stroke:#166534,color:#fff
+    classDef dados fill:#CC2927,stroke:#7a1717,color:#fff
+    classDef fila fill:#FF4F8B,stroke:#a11d55,color:#fff
+    class Receptor,Processador,Despachante,OrdensEnvia,OrdensRecebe servico
+    class Banco dados
+    class FilaComandos,FilaEventos,DLQ fila
 ```
 
-| Recebe | Publica |
-|---|---|
-| Reservar estoque | Estoque reservado · Reserva recusada |
-| Liberar reserva de estoque | Reserva liberada · Falha ao liberar |
+As mensagens são agrupadas pela ordem de serviço, o que preserva a ordem por ordem sem serializar o sistema inteiro. Mensagens de tipo desconhecido e comandos que falham três vezes seguem para a *dead-letter queue*, que exige intervenção manual.
 
-As mensagens são agrupadas pela ordem de serviço, o que preserva a ordem por ordem sem serializar o sistema inteiro. Mensagens de tipo desconhecido seguem para a *dead-letter queue*. Clean Architecture em quatro projetos: **Domain**, **Application**, **Infrastructure** (persistência e mensageria) e **Api**.
+Clean Architecture em quatro projetos: **Domain**, **Application**, **Infrastructure** (persistência e mensageria) e **Api**.
 
----
+### Autenticação
 
-## Autenticação
+O token é validado pelo autorizador na borda, e a API Gateway injeta as *claims* como cabeçalhos de identidade (`x-oficina-user-id`, `x-oficina-user-cpf`, `x-oficina-user-role`, `x-oficina-user-name`). Este serviço materializa esses cabeçalhos como *claims* e aplica as políticas de autorização por perfil; apenas `/health` e `/ready` são anônimos.
 
-O token é validado pelo autorizador da API Gateway, que devolve as *claims* à borda. A API Gateway as converte em cabeçalhos de identidade (`x-oficina-user-id`, `x-oficina-user-cpf`, `x-oficina-user-role`, `x-oficina-user-name`) e os injeta na requisição encaminhada.
-
-Este serviço materializa esses cabeçalhos como *claims* e aplica as políticas de autorização por perfil; apenas `/health` e `/ready` são anônimos. O consumo de mensagens não passa pela camada HTTP e é autorizado pela identidade da task. Os cabeçalhos são confiáveis porque o ALB é interno e o acesso está restrito ao VPC Link. No perfil de desenvolvimento, um modo alternativo aceita cabeçalhos `X-Dev-*` — **ativado apenas em desenvolvimento**.
+O consumo de mensagens não passa pela camada HTTP e é autorizado pela identidade do próprio workload. No perfil de desenvolvimento existe um modo alternativo, que aceita cabeçalhos `X-Dev-*` para simular usuário sem token.
 
 ---
 
@@ -130,71 +186,73 @@ Este serviço materializa esses cabeçalhos como *claims* e aplica as políticas
 | `POST` | `/api/estoque/pecas/{id}/ajustar` · `/api/estoque/insumos/{id}/ajustar` | Funcionário ou administrador |
 | `GET` | `/health` · `/ready` | Anônimo |
 
-**Rotas internas**, consumidas apenas pelas ordens de serviço e **não publicadas na API Gateway**: consulta de disponibilidade e de materiais em lote.
+**Rotas internas** (`/api/internal/...`), consumidas apenas pelas ordens de serviço e **não publicadas na API Gateway**: consulta de disponibilidade e de materiais em lote.
 
-> [!NOTE]
-> `/ready` **verifica a conexão com o banco** e responde `503` quando ela falha. É esse endpoint que o *target group* do ALB usa como health check, então o destino só fica saudável com o serviço pronto para atender. `/health` continua refletindo apenas o processo.
+`/health` reflete apenas o processo; `/ready` verifica a conexão com o banco e responde `503` quando ela falha. É esse endpoint que o target group do ALB usa como health check, então o destino só fica saudável com o serviço pronto para atender.
 
 ---
 
-## O que consome e o que publica
+## Pré-requisitos manuais
+
+| Pré-requisito | Onde configurar | Comportamento sem configuração |
+|---|---|---|
+| Credenciais temporárias da AWS | Secrets deste repositório | O workflow falha na autenticação |
+| Região da AWS | Variable `AWS_REGION` | O workflow aborta na validação inicial |
+| Etapas 2 e 3 concluídas | [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4) e [oficina-infra-db](https://github.com/fabianorodrigues/oficina-infra-db-fiap-fase4) | O deploy falha ao resolver cluster, filas, registro de imagem ou credenciais |
+| Instance profile da EC2 do cluster | Variable `INSTANCE_PROFILE_NAME`, em [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4#pré-requisitos-manuais) | Nenhum workflow da solução cria ou altera recursos IAM |
+
+**Nenhuma role é passada por este deploy.** Os Pods herdam a role do instance profile da EC2, que precisa permitir: registro no Systems Manager, `ecr:GetAuthorizationToken` e leitura das imagens, `secretsmanager:GetSecretValue` nos segredos `/oficina/estoque/{runtime,migration}-db`, `ssm:GetParameter` com `kms:Decrypt` no prefixo `/oficina/deploy/` e o consumo das filas da solução.
+
+---
+
+## Contratos consumidos e publicados
 
 ### Consome
 
-| Valor | Origem | Criado por |
+| Valor | Caminho | Criado por |
 |---|---|---|
-| Node do cluster e namespace | `/oficina/infra/k8s/instance-id` · `/oficina/infra/k8s/namespace` | oficina-infra |
-| Registro de imagem, target group e NodePort | `/oficina/infra/ecr/estoque` · `/oficina/infra/services/estoque/{target-group-arn,node-port}` | oficina-infra |
-| Filas de comandos e eventos + DLQs | `/oficina/infra/sqs/{estoque-comandos,ordens-eventos}[-dlq]/url` | oficina-infra |
+| Node do cluster e namespace | `/oficina/infra/k8s/{instance-id,namespace}` | oficina-infra |
+| Registro de imagem | `/oficina/infra/ecr/estoque` | oficina-infra |
+| Target group e NodePort | `/oficina/infra/services/estoque/{target-group-arn,node-port}` | oficina-infra |
+| Filas de comandos, eventos e DLQs | `/oficina/infra/sqs/{estoque-comandos,ordens-eventos}[-dlq]/url` | oficina-infra |
 | Credenciais de runtime e migração | `/oficina/estoque/{runtime,migration}-db` | oficina-infra-db |
 
-As credenciais são lidas do Secrets Manager **dentro da EC2** e materializadas como **Secrets Kubernetes**, um para o Deployment e outro para o Migration Job; os endereços das filas vão no ConfigMap.
+As credenciais são lidas do Secrets Manager **dentro da EC2** e materializadas como **Secrets Kubernetes** distintos — um para o Deployment e outro para o Migration Job. Os endereços das filas vão no ConfigMap.
 
 ### Publica
 
-O Deployment e o Service NodePort registrados no *target group* do ALB, os eventos de resultado de reserva nas filas e o esquema do banco de estoque, aplicado por um Migration Job nomeado com o commit SHA.
+Deployment e Service NodePort registrados no target group do ALB, os eventos de resultado de reserva nas filas e o esquema do banco de estoque, aplicado por um Migration Job identificado pelo commit.
 
 ---
 
-## Configuração
+## Como configurar
 
-Configure em **Settings → Secrets and variables → Actions** do repositório.
+Configure em **Settings → Secrets and variables → Actions** deste repositório.
 
 | Tipo | Nome | Uso | Obrigatório |
 |---|---|---|:---:|
 | Secret | `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` · `AWS_SESSION_TOKEN` | Credenciais temporárias da AWS | **Sim** |
 | Variable | `AWS_REGION` | Região dos recursos | **Sim** |
-| Variable | `SONAR_PROJECT_KEY` · `SONAR_ORGANIZATION` | Projeto e organização no SonarCloud | Só com `SONAR_TOKEN` |
-| Secret | `SONAR_TOKEN` | Token de análise do SonarCloud. Vazio ignora a análise; o gate local de cobertura continua valendo | Não |
-| Variable | `TF_STATE_BUCKET` | Fallback do bucket que recebe o pacote de manifests | Não |
+| Secret | `SONAR_TOKEN` | Token de análise do SonarCloud | Não |
+| Variable | `SONAR_PROJECT_KEY` · `SONAR_ORGANIZATION` | Projeto e organização no SonarCloud | **Sim, se `SONAR_TOKEN` existir** |
+| Variable | `TF_STATE_BUCKET` | Bucket alternativo para o pacote de manifests | Não |
 
-### Papéis IAM — não provisionados automaticamente
+Sem `SONAR_TOKEN`, a análise de qualidade é ignorada e o **gate local de cobertura continua obrigatório**. Com o token presente e sem projeto ou organização, o workflow falha.
 
-Nenhum workflow desta solução cria ou altera recursos IAM. O deploy não passa
-role alguma: os Pods herdam a role do **instance profile da EC2 do cluster**,
-configurada uma única vez em `oficina-infra` pela variável `INSTANCE_PROFILE_NAME`.
-
-Essa role precisa permitir, no mínimo: registro no Systems Manager,
-`ecr:GetAuthorizationToken` e pull das imagens, `secretsmanager:GetSecretValue`
-nos segredos `/oficina/estoque/{runtime,migration}-db` e `ssm:GetParameter`
-com `kms:Decrypt` em `/oficina/deploy/*`.
-
-> [!NOTE]
-> Sem IRSA e sem Pod Identity, todos os Pods do namespace compartilham essa role.
-> O detalhe está registrado como risco em `docs/ARCHITECTURE.md`.
 ### Variáveis de ambiente da aplicação
 
-Definidas pelo deploy no ConfigMap do namespace, com os endereços das filas resolvidos a partir do Systems Manager dentro da EC2.
+Definidas pelo deploy no ConfigMap e nos Secrets do namespace, com os endereços das filas resolvidos dentro da EC2. **Nenhuma precisa ser configurada no GitHub.**
 
 | Chave | Valor no ambiente publicado |
 |---|---|
-| `ConnectionStrings__OficinaEstoqueDb` | Materializada como Secret Kubernetes dentro da EC2, a partir do Secrets Manager |
-| `Messaging__Sqs__Enabled` | **Ativado** |
+| `ConnectionStrings__OficinaEstoqueDb` | Secret Kubernetes materializado dentro da EC2 |
+| `Messaging__Sqs__Enabled` | Ativado |
 | `Messaging__Sqs__*QueueUrl` | Os quatro endereços de fila |
 | `Messaging__Sqs__ConsumerConcurrency` · `MaxMessages` | Fixos em 1, para preservar a ordem |
-| `Database__ApplyMigrations` | Desativado — migrações rodam em Migration Job próprio |
+| `Database__ApplyMigrations` | Desativado — as migrations rodam em Job próprio |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` · `OTEL_SERVICE_VERSION` · `OTEL_RESOURCE_ATTRIBUTES` | Endereço interno do Collector, commit e atributos de recurso |
 
-A aplicação recusa-se a iniciar fora de desenvolvimento se faltar a cadeia de conexão ou qualquer um dos quatro endereços de fila.
+A aplicação recusa-se a iniciar fora de desenvolvimento se faltar a cadeia de conexão ou qualquer um dos quatro endereços de fila. Nenhuma credencial da New Relic é entregue ao Pod.
 
 ---
 
@@ -202,23 +260,23 @@ A aplicação recusa-se a iniciar fora de desenvolvimento se faltar a cadeia de 
 
 **Actions → Estoque Deploy → Run workflow → `confirmation` = `DEPLOY`**
 
-Roda apenas na branch `main`. Sequência: valida a requisição → valida o contrato
-oficial → **SonarCloud begin, quando configurado** → compila → testa com
-cobertura → **gate local de 80%** → **SonarCloud end com Quality Gate, quando
-configurado** → descobre registro de imagem, node,
-target group e NodePort → constrói as imagens de runtime e de migração →
-**varredura de vulnerabilidades, que interrompe o deploy em achado alto ou
-crítico** → envia ao ECR → **Stage** (pacote de manifests transportado por URL
-pré-assinada, com o Run Command recebendo apenas o nome de um SecureString e o
-hash) → remove o objeto S3 e o SecureString → **Deploy** (pull das duas imagens,
-ConfigMap, Secrets, Migration Job, Deployment, Service, rollout e capacidade do
-node) → confirma o *target group* saudável.
+Roda apenas na branch `main`.
 
-As imagens são marcadas com o hash do commit. Se o Migration Job falhar, o Deployment e o Service não são aplicados.
+| Fase | O que acontece |
+|---|---|
+| Qualidade | Valida o contrato de configuração, compila, executa os testes com cobertura, aplica o **gate local de 80%** e, quando configurado, o Quality Gate do SonarCloud |
+| Imagens | Descobre registro, node, filas, target group e NodePort, constrói as imagens de runtime e de migração e as marca com o commit |
+| Segurança | Varredura de vulnerabilidades que **interrompe o deploy** em achado alto ou crítico, antes do envio ao ECR |
+| Publicação | Transporta o pacote de manifests, aplica ConfigMap, Secrets, Migration Job, Deployment e Service, acompanha o rollout e confere a capacidade do node |
+| Confirmação | Verifica que o destino ficou saudável no target group |
+
+Se o Migration Job falhar, o Deployment e o Service não são aplicados.
+
+A entrada opcional `transport` define como o pacote de manifests chega ao node: `s3` (padrão, por URL pré-assinada) ou `ssm` (alternativa quando o bucket não estiver disponível).
 
 ---
 
-## Validação
+## Como validar
 
 ### Pelo Console AWS
 
@@ -226,7 +284,8 @@ As imagens são marcadas com o hash do commit. Se o Migration Job falhar, o Depl
 |---|---|
 | **ECR** | Repositório de estoque com a imagem do commit publicado |
 | **EC2 → Instâncias** | Node do cluster `running` e `Online` no Systems Manager |
-| **SQS** | Fila de comandos com mensagens sendo consumidas e **DLQ vazia** |
+| **EC2 → Target Groups** | Destino do estoque saudável |
+| **SQS** | Fila de comandos sendo consumida e **DLQ vazia** |
 
 Uma DLQ com mensagens é o principal sinal de falha deste serviço: indica comando que falhou três vezes ou de tipo desconhecido.
 
@@ -237,13 +296,13 @@ Uma DLQ com mensagens é o principal sinal de falha deste serviço: indica coman
 
 ```bash
 REGIAO=<sua-regiao>
+
 INSTANCIA=$(aws ssm get-parameter --name /oficina/infra/k8s/instance-id \
   --region "$REGIAO" --query 'Parameter.Value' --output text)
-
 aws ssm describe-instance-information --filters "Key=InstanceIds,Values=$INSTANCIA" \
   --region "$REGIAO" --query 'InstanceInformationList[0].PingStatus' --output text
 
-# Profundidade das filas: a DLQ deve permanecer em zero
+# Profundidade das filas: as DLQs devem permanecer em zero
 for q in estoque-comandos estoque-comandos-dlq ordens-eventos ordens-eventos-dlq; do
   URL=$(aws ssm get-parameter --name "/oficina/infra/sqs/$q/url" \
     --region "$REGIAO" --query 'Parameter.Value' --output text 2>/dev/null) || continue
@@ -256,13 +315,13 @@ done
 
 </details>
 
-Após a **etapa 9**, a verificação de saúde também responde pela API pública, em `/health/estoque`.
+Após a etapa 9, a verificação de saúde também responde pela API pública, em `/health/estoque`.
 
 ---
 
-## Execução local
+## Ambiente local
 
-O ambiente local completo — banco, filas emuladas e os três serviços — é orquestrado pelo repositório [oficina-ordens-servico](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4), que constrói este serviço a partir do diretório vizinho e cria as filas FIFO no emulador. É o caminho recomendado para exercitar a saga de ponta a ponta.
+O ambiente local completo — banco, filas FIFO emuladas e os três serviços — é orquestrado por [oficina-ordens-servico](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4#ambiente-local), que constrói este serviço a partir do diretório vizinho. É o caminho recomendado para exercitar a saga de ponta a ponta.
 
 Para trabalhar apenas neste repositório:
 
@@ -272,91 +331,44 @@ dotnet build -c Release
 dotnet test
 ```
 
-### Evidências de cobertura de testes
+### Cobertura de testes
 
-- Line coverage real: **85.11%** (480/564 linhas), medido em 25/07/2026 com `dotnet test Oficina.Estoque.sln --configuration Release --settings .runsettings --collect:"XPlat Code Coverage"`.
-- CI: [Estoque CI](https://github.com/fabianorodrigues/oficina-estoque-fiap-fase4/actions/workflows/ci.yml) executa o gate local de 80% e publica o artefato `coverage-${run_id}`.
-- Configuração de cobertura: [`.runsettings`](.runsettings) e [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+| Item | Valor |
+|---|---|
+| Cobertura de linhas | **85,11%** (480/564 linhas) |
+| Gate exigido pela CI | 80% |
+| Comando | `dotnet test Oficina.Estoque.sln --configuration Release --settings .runsettings --collect:"XPlat Code Coverage"` |
+| Configuração | [`.runsettings`](.runsettings) e [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 
-Os testes cobrem regras de estoque, metadados de persistência e contratos públicos.
+A CI publica o relatório como artefato de execução. Os testes cobrem regras de estoque, metadados de persistência e contratos públicos.
 
 ---
 
 ## Observabilidade
 
-Telemetria por OpenTelemetry, com um único Collector no cluster. O serviço envia
-traces e métricas por OTLP gRPC ao gateway interno e escreve logs JSON no stdout,
-que o receiver `filelog` coleta — a aplicação **não** exporta log por OTLP, para não
-entregar o mesmo registro por dois caminhos.
+Telemetria por OpenTelemetry, com um único Collector no cluster. O serviço envia traces e métricas por OTLP gRPC ao gateway interno e escreve logs JSON no stdout, coletados pelo receiver `filelog`.
 
-**Variáveis no ConfigMap:** `OTEL_EXPORTER_OTLP_ENDPOINT` (endpoint interno
-obrigatório do Collector; o exporter é fail-open se o gateway ainda não
-responder), `OTEL_SERVICE_VERSION` (commit SHA) e `OTEL_RESOURCE_ATTRIBUTES`. O `service.name` vem do código
-(`oficina-estoque`), sem `OTEL_SERVICE_NAME` duplicado no manifesto. Nenhuma
-credencial da New Relic entra no Pod.
-
-**Contrato dos logs**, com os campos no nível superior do JSON:
+Campos no nível superior de cada log:
 
 ```
 timestamp, level, message, service.name, service.version, deployment.environment,
-correlationId, trace.id, span.id, ordemServicoId, messageId, messageType, sagaState
+correlationId, trace.id, span.id, ordemServicoId, messageId, messageType
 ```
 
-No consumo de mensagem os campos `correlationId`, `ordemServicoId`, `messageId` e
-`messageType` vêm de um escopo de log aberto pelo Inbox Processor, então todo log do
-processamento sai correlacionado.
+No consumo de mensagem esses campos vêm de um escopo aberto pelo processador da caixa de entrada, então todo log do processamento sai correlacionado.
 
-### Propagação de trace pelo SQS
+**Propagação de trace pelo SQS.** O contexto é capturado na criação da caixa de saída e viaja no envelope da mensagem; a instrumentação da AWS cria o span de envio e injeta a propagação nos atributos da mensagem; o receptor transfere esse contexto para o envelope persistido; e o processador abre a única Activity de consumo. Assim há uma única fonte de span por etapa, sem duplicar a publicação.
 
-Uma única fonte de span por etapa:
+**Fail-open:** falha do Collector ou da New Relic registra erro local e o serviço continua atendendo e consumindo mensagens.
 
-```
-MessageJson.Envelope  captura o contexto na criação do Outbox
-OutboxDispatcher      extrai o contexto do envelope
-                      cria ActivityKind.Internal: oficina.outbox.dispatch
-AWS Instrumentation   cria o span real de envio SQS
-                      injeta traceparent/tracestate nos MessageAttributes
-Receiver              solicita MessageAttributeNames = All
-                      transfere o contexto para o envelope persistido
-InboxProcessor        cria a ÚNICA ActivityKind.Consumer
-```
-
-Três decisões que evitam defeito silencioso:
-
-- **Sem injeção manual de `traceparent`.** A instrumentação AWS já cria o span de
-  envio e injeta a propagação; somar um Producer manual duplicaria o span e faria o
-  dashboard contar a mesma publicação duas vezes. Os `MessageAttributes` manuais são
-  só de negócio: `correlationId`, `causationId`, `ordemServicoId` e `messageType`.
-- **O contexto viaja no envelope, sem migration.** O Outbox é gravado numa transação
-  e publicado depois, noutro contexto; os campos `traceparent` e `tracestate` são
-  opcionais e aditivos, e mensagem gravada antes da mudança continua válida.
-- **O receiver transfere o contexto.** A instrumentação AWS injeta nos
-  `MessageAttributes` mas não atualiza o JSON do envelope. Sem a transferência, o
-  Consumer viraria filho do contexto anterior ao envio — mesmo `traceId`, relação
-  causal errada.
-
-**Fail-open.** Falha do Collector ou do New Relic registra erro local e o serviço
-continua atendendo e consumindo mensagens.
-
-Detalhes, queries do dashboard, alertas e troubleshooting em `docs/OBSERVABILITY.md`.
-
----
-
-## Limitações conhecidas
-
-- **Processamento estritamente serial.** Concorrência e lote fixos em 1 para preservar a ordem: consistência custa vazão.
-- **Réplica única, sem escala automática**, por decisão de projeto — reforçada por verificação na CI.
-- **Cobertura com gate local de 80%.** O CI reprova quando a cobertura de linhas fica abaixo do mínimo.
-- **Sem reprocessamento automático da DLQ.** Mensagens que chegam lá exigem intervenção manual.
+Dashboard, alertas e monitores sintéticos são provisionados pela etapa 10, em [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4#observabilidade).
 
 ---
 
 ## Próxima etapa
 
-**Etapa 7 — obrigatória.** Pré-condição: Deployment `oficina-estoque` disponível no cluster, Migration Job concluído com sucesso e a fila de comandos sendo consumida com a DLQ vazia.
+**Etapa 8 — obrigatória.** Pré-condição: Deployment disponível no cluster, Migration Job concluído, destino saudável no target group e fila de comandos sendo consumida com a DLQ vazia.
 
-**→ [oficina-ordens-servico](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4)** — seção [Como executar](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4#como-executar).
+**→ [oficina-ordens-servico](https://github.com/fabianorodrigues/oficina-ordens-servico-fiap-fase4#etapa-8--ordens-deploy)** — publica o último microsserviço e o coordenador da saga.
 
-Com os três serviços no ar, siga para a **etapa 9** em [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4), que publica as rotas na API Gateway, e depois para a **etapa 10** de observabilidade.
-
-Para revisar a etapa anterior, volte a **[oficina-cadastro](https://github.com/fabianorodrigues/oficina-cadastro-fiap-fase4)** (etapa 5).
+Com os três serviços no ar, siga para a **etapa 9** em [oficina-infra](https://github.com/fabianorodrigues/oficina-infra-fiap-fase4), que publica as rotas na API Gateway.
